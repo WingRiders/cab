@@ -1,0 +1,20 @@
+node_modules
+dist
+
+# skip all type declarations
+*.d.ts
+*.d.ts.map
+!declarations.d.ts
+/account/
+/constants/
+/crypto/
+/dataProviders/
+/errors/
+/helpers/
+/ledger/
+/logger/
+/network/
+/tokenRegistry/
+/types/
+/wallet/
+/dappConnector/

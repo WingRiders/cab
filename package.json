@@ -1,0 +1,78 @@
+{
+  "name": "@wingriders/cab",
+  "version": "1.5.0",
+  "description": "CAB is a library to help with development of Cardano apps for browser and Node.js",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/WingRiders/cab.git"
+  },
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./account": "./dist/account/index.js",
+    "./constants": "./dist/constants/index.js",
+    "./crypto": "./dist/crypto/index.js",
+    "./dappConnector": "./dist/dappConnector/index.js",
+    "./dataProviders": "./dist/dataProviders/index.js",
+    "./errors": "./dist/errors/index.js",
+    "./helpers": "./dist/helpers/index.js",
+    "./ledger/address": "./dist/ledger/address/index.js",
+    "./ledger/assets": "./dist/ledger/assets/index.js",
+    "./ledger/plutus": "./dist/ledger/plutus/index.js",
+    "./ledger/transaction": "./dist/ledger/transaction/index.js",
+    "./logger": "./dist/logger/index.js",
+    "./types": "./dist/types/index.js",
+    "./wallet": "./dist/wallet/index.js",
+    "./wallet/connector": "./dist/wallet/connector/index.js"
+  },
+  "types": "index.d.ts",
+  "files": [
+    "dist",
+    "**/*.d.ts",
+    ".assets",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "cardano",
+    "pab",
+    "crypto"
+  ],
+  "author": "WingRiders",
+  "license": "ISC",
+  "scripts": {
+    "ts-patch": "ts-patch install -s",
+    "prepack": "yarn clean && yarn ts-patch && yarn build",
+    "clean": "rm -Rf index.d.ts index.d.ts.map account constants crypto dappConnector dataProviders dist errors helpers ledger logger types wallet",
+    "build": "yarn ts-patch && yarn tsc -p ./tsconfig.build.json",
+    "dev": "yarn ts-patch && yarn tsc -p ./tsconfig.build.json --watch",
+    "test": "mocha"
+  },
+  "dependencies": {
+    "bignumber.js": "^9.1.1",
+    "bip39-light": "^1.0.7",
+    "borc": "^3.0.0",
+    "cardano-crypto.js": "^6.1.1",
+    "date-fns": "^2.29.3",
+    "isomorphic-fetch": "^3.0.0",
+    "json-bigint": "^1.0.0",
+    "lodash": "^4.17.21",
+    "randombytes": "^2.1.0"
+  },
+  "devDependencies": {
+    "@cardano-ogmios/schema": "^5.5.5",
+    "@types/json-bigint": "^1.0.1",
+    "@types/lodash": "^4.14.0",
+    "@types/mocha": "^10.0.0",
+    "@types/randombytes": "^2.0.0",
+    "@typescript-eslint/parser": "^5.9.1",
+    "eslint-import-resolver-typescript": "^2.5.0",
+    "eslint-plugin-import": "^2.24.2",
+    "fetch-mock": "6.0.1",
+    "mocha": "^10.2.0",
+    "ts-node": "^10.9.1",
+    "ts-patch": "^2.1.0",
+    "typescript": "^4.9.4",
+    "typescript-transform-paths": "^3.4.6"
+  }
+}
