@@ -1,34 +1,39 @@
-import {
-  NetworkId,
-  Value,
-  Paginate,
-  TxUnspentOutput,
+import {BigNumber} from 'bignumber.js'
+import {decode, encode} from 'borc'
+import {chain} from 'lodash'
+
+import type {
   Address,
-  Transaction,
-  TxHash,
-  SignTxOptions,
-  TxWitnessSet,
-  HexString,
   CborAPI,
   CborHexString,
+  HexString,
   JsAPI,
+  NetworkId,
+  Paginate,
+  SignTxOptions,
+  Transaction,
+  TxHash,
+  TxUnspentOutput,
+  TxWitnessSet,
   UtxoFilterOptions,
+  Value,
 } from '@/dappConnector'
-import {decode, encode} from 'borc'
-import {BigNumber} from 'bignumber.js'
+import {MAX_COLLATERAL_AMOUNT, optionalFields} from '@/helpers'
+import {valueToLovelace} from '@/ledger/assets'
 import {CborizedTxStructured, ShelleyTransactionStructured, TxWitnessKey} from '@/ledger/transaction'
-import {cborizeTxWitnesses, cborizeNormalizedTxValue} from '@/ledger/transaction/cbor/cborize'
-import {reverseBootstrapWitness, reverseTx, reverseVKeyWitnesses} from './reverse'
+import {cborizeNormalizedTxValue, cborizeTxWitnesses} from '@/ledger/transaction/cbor/cborize'
+
+import {BridgeError} from './BridgeError'
 import {
-  parseValue,
   DecodedValue,
-  parseVKeyWitnesses,
   parseBootstrapWitnesses,
   parseCborHexUtxo,
+  parseValue,
+  parseVKeyWitnesses,
 } from './parse'
-import {BridgeError} from './BridgeError'
-import {optionalFields} from '@/helpers'
-import {chain} from 'lodash'
+import {reverseBootstrapWitness, reverseTx, reverseValue, reverseVKeyWitnesses} from './reverse'
+
+const REQUESTED_COLLATERAL_LOVELACE = new BigNumber(MAX_COLLATERAL_AMOUNT)
 
 /**
  * A compatibility layer between a standardized {@link CborAPI} and our {@link JsAPI}.
@@ -68,30 +73,37 @@ export class CborToJsApiBridge implements JsAPI {
       .value()
   }
 
-  protected async getRawCollateral(): Promise<CborHexString[] | null | undefined> {
-    // attempt to load collaterals from the experimental apis
-    const getCollateral = this.cborApi.getCollateral || this.cborApi.experimental?.getCollateral
+  protected findCollateralGetter(): CborAPI['getCollateral'] {
+    return (
+      this.cborApi.getCollateral?.bind(this.cborApi) ||
+      this.cborApi.experimental?.getCollateral?.bind(this.cborApi.experimental)
+    )
+  }
 
-    if (typeof getCollateral === 'function') {
-      try {
-        const collaterals = await getCollateral()
-        if (collaterals != null && !Array.isArray(collaterals)) {
-          throw new BridgeError(
-            `getCollateral returned ${String(collaterals)}, expected array, null or undefined!`
-          )
-        }
-        return collaterals
-      } catch (e) {
-        const isTyphonCollateralNotFoundError = e.code === -2 && e.info === 'Collateral utxo not found!'
-        if (!isTyphonCollateralNotFoundError) {
-          throw e
-        }
+  protected async getRawCollateral(): Promise<CborHexString[]> {
+    const getCollateral = this.findCollateralGetter()
+
+    if (
+      typeof getCollateral === 'function' &&
+      // skip if balance too low
+      valueToLovelace(reverseValue(await this.getBalance())).gte(REQUESTED_COLLATERAL_LOVELACE)
+    ) {
+      const amount = encode(REQUESTED_COLLATERAL_LOVELACE).toString('hex') as CborHexString
+      const collaterals = await getCollateral({amount})
+      if (collaterals != null && !Array.isArray(collaterals)) {
+        throw new BridgeError(
+          `getCollateral returned ${String(collaterals)}, expected array, null or undefined!`
+        )
       }
+      return collaterals ?? []
     }
-    return undefined
+
+    return []
   }
 
   async getCollateral(): Promise<TxUnspentOutput[] | undefined> {
+    this.assertState()
+
     return (await this.getRawCollateral())?.map(parseCborHexUtxo)
   }
 

@@ -1,14 +1,16 @@
-import {MIN_RECOMMENDED_COLLATERAL_AMOUNT} from '@/helpers/collaterals'
+import {hasSpendingScript} from 'cardano-crypto.js'
+
 import {
-  UtxoFilterOptions,
-  TxUnspentOutput,
-  CborHexString,
   AdaAssetName,
   AdaPolicyId,
   CborAPI,
+  CborHexString,
+  TxUnspentOutput,
+  UtxoFilterOptions,
 } from '@/dappConnector'
 import {cacheResults} from '@/helpers'
-import {hasSpendingScript} from 'cardano-crypto.js'
+import {MIN_RECOMMENDED_COLLATERAL_AMOUNT} from '@/helpers/collaterals'
+
 import {BridgeError} from './BridgeError'
 import {CborToJsApiBridge} from './CborToJsApiBridge'
 import {parseCborHexUtxo} from './parse'
@@ -87,7 +89,7 @@ export class EternlToJsApiBridge extends CborToJsApiBridge {
 
         // this is just a sanity check, wallets should not return script utxos
         // if it has datum or if the address is a script
-        if (txOut.datumHash || hasSpendingScript(Buffer.from(txOut.address, 'hex'))) {
+        if (hasSpendingScript(Buffer.from(txOut.address, 'hex'))) {
           return false
         }
         return true

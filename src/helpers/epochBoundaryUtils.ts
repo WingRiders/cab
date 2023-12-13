@@ -1,8 +1,10 @@
-import {CabInternalError, CabInternalErrorReason} from '../errors'
-import {OptionalErrorParams} from '@/errors'
 import differenceInDays from 'date-fns/differenceInDays'
 import differenceInMinutes from 'date-fns/differenceInMinutes'
 import subDays from 'date-fns/subDays'
+
+import {OptionalErrorParams} from '@/errors'
+
+import {CabInternalError, CabInternalErrorReason} from '../errors'
 
 // TODO shouldn't this depend on the genesis files?
 export function isEpochBoundaryUnderway(): boolean {

@@ -1,64 +1,73 @@
-import {base58, bech32} from 'cardano-crypto.js'
 import {Tagged} from 'borc'
+import {base58, bech32} from 'cardano-crypto.js'
+import {compact, partition} from 'lodash'
 import sortBy from 'lodash/sortBy'
 
+import * as api from '@/dappConnector'
+import {AdaAssetName, AdaPolicyId} from '@/dappConnector'
 import {UnexpectedError, UnexpectedErrorReason} from '@/errors'
-import {Lovelace, TokenBundle} from '@/types/base'
+import {ipv4AddressToBuf, ipv6AddressToBuf} from '@/helpers/ipHelpers'
+import {isShelleyFormat} from '@/ledger/address/addressHelpers'
+import {orderTokenBundle} from '@/ledger/assets/tokenFormatter'
 import {AddrKeyHash} from '@/types/address'
-
+import {Lovelace, TokenBundle} from '@/types/base'
 import {TxRelayType} from '@/types/stakepool'
 import {
+  Language,
   TxByronWitness,
   TxCertificate,
   TxCertificateType,
+  TxDatum,
+  TxDatumOption,
+  TxDatumOptionType,
   TxDelegationCert,
   TxInput,
+  TxInputRef,
   TxOutput,
+  TxOutputType,
+  TxRedeemer,
+  TxRedeemerTag,
+  TxScriptSource,
   TxShelleyWitness,
   TxStakepoolRegistrationCert,
   TxStakingKeyDeregistrationCert,
   TxStakingKeyRegistrationCert,
   TxWithdrawal,
-  TxDatum,
-  TxRedeemer,
-  TxRedeemerTag,
-  TxScript,
 } from '@/types/transaction'
 
-import {isShelleyFormat} from '@/ledger/address/addressHelpers'
-import {orderTokenBundle} from '@/ledger/assets/tokenFormatter'
-import {ipv4AddressToBuf, ipv6AddressToBuf} from '@/helpers/ipHelpers'
+import {CborInt64} from './CborInt64'
 import {
-  CborizedTxValue,
+  CborizedDatumOption,
+  CborizedPubKeyHash,
   CborizedTxCertificate,
-  TxCertificateKey,
+  CborizedTxDelegationCert,
   CborizedTxInput,
   CborizedTxOutput,
+  CborizedTxRedeemer,
+  CborizedTxScript,
   CborizedTxStakeCredential,
-  TxStakeCredentialType,
+  CborizedTxStakepoolRegistrationCert,
+  CborizedTxStakingKeyDeregistrationCert,
+  CborizedTxStakingKeyRegistrationCert,
   CborizedTxTokenBundle,
+  CborizedTxValue,
   CborizedTxWithdrawals,
   CborizedTxWitnessByron,
   CborizedTxWitnesses,
-  TxWitnessKey,
   CborizedTxWitnessShelley,
-  CborizedTxStakingKeyRegistrationCert,
-  CborizedTxStakingKeyDeregistrationCert,
-  CborizedTxDelegationCert,
-  CborizedTxStakepoolRegistrationCert,
-  CborizedTxRedeemer,
-  CborizedTxScript,
-  CborizedPubKeyHash,
+  TxCertificateKey,
+  TxOutputKey,
+  TxStakeCredentialType,
+  TxWitnessKey,
 } from './cborizedTx'
 import {CborizedTxDatum} from './CborizedTxDatum'
-import {CborInt64} from './CborInt64'
-import * as api from '@/dappConnector'
-import {AdaAssetName, AdaPolicyId} from '@/dappConnector'
+import {CborizedTxInlineDatum} from './CborizedTxInlineDatum'
+import {CborizedTxScriptRef} from './CborizedTxScriptRef'
 
 const orderedInputSet = (inputs: CborizedTxInput[]) =>
   sortBy(inputs, [(input) => input[0].toString('hex'), 1])
 
-export function cborizeTxInputs(inputs: TxInput[]): CborizedTxInput[] {
+export function cborizeTxInputs(inputs: TxInputRef[]): CborizedTxInput[] {
   const txInputs: CborizedTxInput[] = inputs.map(({txHash, outputIndex}) => {
     const txId = Buffer.from(txHash, 'hex')
     return [txId, outputIndex]
@@ -66,13 +75,16 @@ export function cborizeTxInputs(inputs: TxInput[]): CborizedTxInput[] {
   return orderedInputSet(txInputs)
 }
 
-export function cborizeTxOutputTokenBundle(tokenBundle: TokenBundle): CborizedTxTokenBundle {
+export function cborizeTxOutputTokenBundle(
+  tokenBundle: TokenBundle,
+  allowNegative = false
+): CborizedTxTokenBundle {
   const policyIdMap = new Map<Buffer, Map<Buffer, CborInt64>>()
   const orderedTokenBundle = orderTokenBundle(tokenBundle)
   orderedTokenBundle.forEach(({policyId, assets}) => {
     const assetMap = new Map<Buffer, CborInt64>()
     assets
-      .filter(({quantity}) => quantity.gt(0))
+      .filter(({quantity}) => (allowNegative ? !quantity.isZero() : quantity.gt(0)))
       .forEach(({assetName, quantity}) => {
         assetMap.set(Buffer.from(assetName, 'hex'), new CborInt64(quantity))
       })
@@ -96,9 +108,21 @@ export function cborizeSingleTxOutput(output: TxOutput): CborizedTxOutput {
   const addressBuff: Buffer = isShelleyFormat(output.address)
     ? bech32.decode(output.address).data
     : base58.decode(output.address)
-  return output.dataHash
-    ? [addressBuff, value, Buffer.from(output.dataHash, 'hex')]
-    : [addressBuff, value]
+  if (output.type === TxOutputType.LEGACY) {
+    return output.datumHash
+      ? [addressBuff, value, Buffer.from(output.datumHash, 'hex')]
+      : [addressBuff, value]
+  }
+  return new Map<TxOutputKey, Buffer | CborizedTxValue | CborizedDatumOption | CborizedTxScriptRef>([
+    [TxOutputKey.OUTPUT_KEY_ADDRESS, addressBuff],
+    [TxOutputKey.OUTPUT_KEY_VALUE, value],
+    ...(output.datumOption
+      ? ([[TxOutputKey.OUTPUT_KEY_DATUM_OPTION, cborizeTxDatumOption(output.datumOption)]] as const)
+      : []),
+    ...(output.scriptRef
+      ? ([[TxOutputKey.OUTPUT_KEY_SCRIPT_REF, new CborizedTxScriptRef(output.scriptRef)]] as const)
+      : []),
+  ])
 }
 
 export function cborizeTxOutputs(outputs: TxOutput[]): CborizedTxOutput[] {
@@ -235,13 +259,20 @@ export function cborizeTxDatums(datums: TxDatum[]): CborizedTxDatum[] {
   return txDatums
 }
 
+export function cborizeTxDatumOption(datumOption: TxDatumOption): CborizedDatumOption {
+  if (datumOption.type === TxDatumOptionType.HASH) {
+    return [0, Buffer.from(datumOption.hash, 'hex')]
+  }
+  return [1, new CborizedTxInlineDatum(datumOption.datum)]
+}
+
 export function cborizeTxRedeemers(
   redeemers: TxRedeemer[],
   inputs: TxInput[],
   mint: TokenBundle = []
 ): CborizedTxRedeemer[] {
   const orderedInputs = cborizeTxInputs(inputs) // also orders input in lexographical order
-  const multiAssets = cborizeTxOutputTokenBundle(mint)
+  const multiAssets = cborizeTxOutputTokenBundle(mint, true)
   const txRedeemers: CborizedTxRedeemer[] = redeemers.map((redeemer) => {
     const datum = new CborizedTxDatum(redeemer.data)
     const exUnits: [number, number] = [redeemer.exUnits.memory, redeemer.exUnits.steps]
@@ -276,15 +307,17 @@ export function cborizeTxRedeemers(
   return txRedeemers
 }
 
-export function cborizeTxScripts(scripts: TxScript[]): CborizedTxScript[] {
-  const txScripts = scripts.map((script) => script.bytes)
+export function cborizeTxScripts(scripts: TxScriptSource[]): CborizedTxScript[] {
+  const txScripts = compact(
+    scripts.map((script) => (script.isReferenceScript ? undefined : script.bytes))
+  )
   return txScripts
 }
 
 type WitnessParams = {
   byronWitnesses: TxByronWitness[]
   shelleyWitnesses: TxShelleyWitness[]
-  scripts?: TxScript[]
+  scripts?: TxScriptSource[]
   datums?: TxDatum[]
   redeemers?: TxRedeemer[]
   mint?: TokenBundle // required for redeemers for matching refs
@@ -308,7 +341,13 @@ export function cborizeTxWitnesses({
     txWitnesses.set(TxWitnessKey.SHELLEY, cborizeTxWitnessesShelley(shelleyWitnesses))
   }
   if (scripts && scripts.length > 0) {
-    txWitnesses.set(TxWitnessKey.SCRIPTS, cborizeTxScripts(scripts))
+    const [v1, v2] = partition(scripts, (script) => script.language === Language.PLUTUSV1)
+    if (v1.length > 0) {
+      txWitnesses.set(TxWitnessKey.SCRIPTS_V1, cborizeTxScripts(scripts))
+    }
+    if (v2.length > 0) {
+      txWitnesses.set(TxWitnessKey.SCRIPTS_V2, cborizeTxScripts(scripts))
+    }
   }
   if (datums && datums.length > 0) {
     txWitnesses.set(TxWitnessKey.DATA, cborizeTxDatums(datums))

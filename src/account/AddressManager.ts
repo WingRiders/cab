@@ -1,46 +1,44 @@
-import {Address} from '@/types/base'
-import {AddressTypes, BIP32Path, PubKeyHash, StakingHash} from '@/types/address'
+import {getAddressType} from 'cardano-crypto.js'
 
-import {toBip32StringPath} from '../helpers'
+import {ICryptoProvider} from '@/crypto'
+import {UnexpectedError, UnexpectedErrorReason} from '@/errors'
+import {
+  bechAddressToHex,
+  shelleyBaseAddressProvider,
+  spendingHashFromAddress,
+  stakingHashFromAddress,
+} from '@/ledger/address'
+import {
+  shelleyEnterpriseAddressProvider,
+  shelleyStakingAccountProvider,
+} from '@/ledger/address/shelleyAddressProvider'
+import {AddressTypes, BIP32Path, PubKeyHash, StakingHash} from '@/types/address'
+import {Address} from '@/types/base'
+import {IBlockchainExplorer} from '@/types/blockchainExplorer'
 import {
   AddressProvider,
   AddressToPathMapper,
   AddressToPathMapping,
   AddressWithMeta,
 } from '@/types/wallet'
-import {UnexpectedError, UnexpectedErrorReason} from '@/errors'
-import {ICryptoProvider} from '@/crypto'
-import {
-  shelleyBaseAddressProvider,
-  bechAddressToHex,
-  spendingHashFromAddress,
-  stakingHashFromAddress,
-} from '@/ledger/address'
-import {
-  shelleyStakingAccountProvider,
-  shelleyEnterpriseAddressProvider,
-} from '@/ledger/address/shelleyAddressProvider'
-import {getAddressType} from 'cardano-crypto.js'
-import {IOnChainDataProvider} from '@/dataProviders'
+
+import {toBip32StringPath} from '../helpers'
+
+type AddressManagerParams = {
+  addressProvider: AddressProvider
+  gapLimit: number
+  blockchainExplorer: IBlockchainExplorer
+}
 
 export class AddressManager {
   addressProvider: AddressProvider
   gapLimit: number
-  onChainDataProvider: IOnChainDataProvider
+  blockchainExplorer: IBlockchainExplorer
   deriveAddressMemo: {[key: number]: {path: BIP32Path; address: Address}}
-
-  constructor({
-    addressProvider,
-    gapLimit,
-    onChainDataProvider,
-  }: {
-    addressProvider: AddressProvider
-    gapLimit: number
-    onChainDataProvider: IOnChainDataProvider
-  }) {
+  constructor({addressProvider, gapLimit, blockchainExplorer}: AddressManagerParams) {
     this.addressProvider = addressProvider
     this.gapLimit = gapLimit
-    this.onChainDataProvider = onChainDataProvider
+    this.blockchainExplorer = blockchainExplorer
     this.deriveAddressMemo = {}
 
     if (!gapLimit) {
@@ -76,7 +74,7 @@ export class AddressManager {
     while (!isGapBlock) {
       const currentAddressBlock = await this._deriveAddresses(from, from + this.gapLimit)
 
-      isGapBlock = (await this.onChainDataProvider.filterUsedAddresses(currentAddressBlock)).size === 0
+      isGapBlock = !(await this.blockchainExplorer.isSomeAddressUsed(currentAddressBlock))
 
       addresses = isGapBlock && addresses.length > 0 ? addresses : addresses.concat(currentAddressBlock)
       from += this.gapLimit
@@ -90,7 +88,7 @@ export class AddressManager {
 
   async discoverAddressesWithMeta(): Promise<AddressWithMeta[]> {
     const addresses = await this.discoverAddresses()
-    const usedAddresses = await this.onChainDataProvider.filterUsedAddresses(addresses)
+    const usedAddresses = await this.blockchainExplorer.filterUsedAddresses(addresses)
 
     return addresses.map((address) => ({
       address,
@@ -116,7 +114,7 @@ type MyAddressesParams = {
   accountIndex: number
   cryptoProvider: ICryptoProvider
   gapLimit: number
-  onChainDataProvider: IOnChainDataProvider
+  blockchainExplorer: IBlockchainExplorer
 }
 
 export class MyAddresses {
@@ -128,40 +126,42 @@ export class MyAddresses {
   enterpriseExtAddrManager: AddressManager
   enterpriseIntAddrManager: AddressManager
   cryptoProvider: ICryptoProvider
+  blockchainExplorer: IBlockchainExplorer
 
-  constructor({accountIndex, cryptoProvider, gapLimit, onChainDataProvider}: MyAddressesParams) {
+  constructor({accountIndex, cryptoProvider, gapLimit, blockchainExplorer}: MyAddressesParams) {
     this.accountIndex = accountIndex
     this.gapLimit = gapLimit
     this.cryptoProvider = cryptoProvider
+    this.blockchainExplorer = blockchainExplorer
 
     this.accountAddrManager = new AddressManager({
       addressProvider: shelleyStakingAccountProvider(cryptoProvider, accountIndex),
       gapLimit,
-      onChainDataProvider,
+      blockchainExplorer,
     })
 
     this.baseExtAddrManager = new AddressManager({
       addressProvider: shelleyBaseAddressProvider(cryptoProvider, accountIndex, false),
       gapLimit,
-      onChainDataProvider,
+      blockchainExplorer,
     })
 
     this.baseIntAddrManager = new AddressManager({
       addressProvider: shelleyBaseAddressProvider(cryptoProvider, accountIndex, true),
       gapLimit,
-      onChainDataProvider,
+      blockchainExplorer,
     })
 
     this.enterpriseExtAddrManager = new AddressManager({
       addressProvider: shelleyEnterpriseAddressProvider(cryptoProvider, accountIndex, false),
       gapLimit,
-      onChainDataProvider,
+      blockchainExplorer,
     })
 
     this.enterpriseIntAddrManager = new AddressManager({
       addressProvider: shelleyEnterpriseAddressProvider(cryptoProvider, accountIndex, true),
       gapLimit,
-      onChainDataProvider,
+      blockchainExplorer,
     })
   }
 
@@ -247,6 +247,13 @@ export class MyAddresses {
         mappingEnterpriseShelley[entry]
       )
     }
+  }
+
+  async areAddressesUsed(): Promise<boolean> {
+    // we check only the external addresses since internal should not be used before external
+    // https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki#address-gap-limit
+    const baseExt = await this.baseExtAddrManager._deriveAddresses(0, this.gapLimit)
+    return await this.blockchainExplorer.isSomeAddressUsed(baseExt)
   }
 
   getStakingAddress(): Promise<Address> {

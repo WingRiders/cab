@@ -1,22 +1,26 @@
 import partition from 'lodash/partition'
+
 import {ICryptoProvider} from '@/crypto/ICryptoProvider'
 import {CabInternalError, CabInternalErrorReason} from '@/errors'
+import {isRecommendedCollateral} from '@/helpers'
 import {bechAddressToHex} from '@/ledger/address'
+import {aggregateTokenBundles} from '@/ledger/assets'
+import {computeMinUTxOLovelaceAmount, TxAux} from '@/ledger/transaction'
 import {
   Address,
   AddressWithMeta,
   BigNumber,
+  IBlockchainExplorer,
   Lovelace,
   ProtocolParameters,
   StakePoolInfoExtended,
   TokenBundle,
+  TxOutputType,
   UTxO,
+  ZeroLovelace,
 } from '@/types'
+
 import {MyAddresses} from './AddressManager'
-import {computeMinUTxOLovelaceAmount, TxAux} from '@/ledger/transaction'
-import {aggregateTokenBundles} from '@/ledger/assets'
-import {isRecommendedCollateral} from '@/helpers'
-import {ILedgerStateDataProvider, IOnChainDataProvider, StakingInfo} from '@/dataProviders'
 
 export type AccountInfo = {
   accountIndex: number
@@ -32,6 +36,16 @@ export type AccountInfo = {
   stakingAddress: Address
 }
 
+export type StakingInfo = {
+  currentEpoch: number
+  isStakeKeyRegistered: boolean
+  delegation: StakePoolInfoExtended & {
+    retiringEpoch: number | null
+    url: string
+  }
+  rewards: Lovelace
+}
+
 /**
  * Account is derived by the derivation path `m/1852'/1815'/accountIndex'`
  *
@@ -43,6 +57,8 @@ export type AccountInfo = {
  *
  * Another responsibility is the ability to witness transactions, with the
  * private keys belonging to one of its addresses.
+ *
+ * The source of UTxOs, used addresses and staking info is the Blockchain Explorer.
  *
  * By default Account is loaded once on initialization, and to get new data
  * it needs to be explicitly reloaded by calling the appropriate methods:
@@ -57,8 +73,7 @@ export class Account {
   public accountIndex: number
 
   private cryptoProvider: ICryptoProvider
-  private onChainDataProvider: IOnChainDataProvider
-  private ledgerStateDataProvider: ILedgerStateDataProvider
+  private blockchainExplorer: IBlockchainExplorer
 
   protected accountInfo: AccountInfo | null
   protected utxos: UTxO[] | null
@@ -70,14 +85,12 @@ export class Account {
 
   constructor({
     cryptoProvider,
-    onChainDataProvider,
-    ledgerStateDataProvider,
+    blockchainExplorer,
     accountIndex,
     gapLimit,
   }: {
     cryptoProvider: ICryptoProvider
-    onChainDataProvider: IOnChainDataProvider
-    ledgerStateDataProvider: ILedgerStateDataProvider
+    blockchainExplorer: IBlockchainExplorer
     accountIndex: number
     /**
      * Gap limit signalizes that after how many unused addresses to stop
@@ -88,8 +101,7 @@ export class Account {
     this.accountIndex = accountIndex
 
     this.cryptoProvider = cryptoProvider
-    this.onChainDataProvider = onChainDataProvider
-    this.ledgerStateDataProvider = ledgerStateDataProvider
+    this.blockchainExplorer = blockchainExplorer
 
     this.accountInfo = null
     this.utxos = null
@@ -99,7 +111,7 @@ export class Account {
       accountIndex,
       cryptoProvider,
       gapLimit,
-      onChainDataProvider,
+      blockchainExplorer,
     })
   }
 
@@ -167,11 +179,11 @@ export class Account {
     const {baseExternal, baseInternal, enterpriseExternal, enterpriseInternal} =
       this.getAccountInfo().addresses
 
-    return this.onChainDataProvider.getUTxOs({
-      addresses: [...baseExternal, ...baseInternal, ...enterpriseExternal, ...enterpriseInternal].map(
+    return this.blockchainExplorer.fetchUnspentTxOutputs(
+      [...baseExternal, ...baseInternal, ...enterpriseExternal, ...enterpriseInternal].map(
         ({address}) => address
-      ),
-    })
+      )
+    )
   }
 
   public async reloadUtxos(): Promise<Account> {
@@ -288,16 +300,22 @@ export class Account {
     const address = this.getChangeAddress()
     const minUTxOLovelaceAmount = computeMinUTxOLovelaceAmount({
       protocolParameters,
-      address,
-      tokenBundle,
+      output: {type: TxOutputType.LEGACY, isChange: false, coins: ZeroLovelace, address, tokenBundle},
     })
     return BigNumber.max(coins.minus(minUTxOLovelaceAmount), 0) as Lovelace
   }
 
-  private fetchStakingInfo(): Promise<StakingInfo> {
+  private async fetchStakingInfo(): Promise<StakingInfo> {
     this.assertAccountInfoLoaded()
     const stakingAddressHex = bechAddressToHex(this.accountInfo.stakingAddress)
-    return this.ledgerStateDataProvider.getStakeKeyInfo(stakingAddressHex)
+    const stakingInfo = await this.blockchainExplorer.getStakingInfo(stakingAddressHex)
+
+    return {
+      currentEpoch: stakingInfo.currentEpoch,
+      isStakeKeyRegistered: stakingInfo.hasStakingKey,
+      delegation: stakingInfo.delegation,
+      rewards: new Lovelace(stakingInfo.rewards || 0, 10) as Lovelace,
+    }
   }
 
   public async reloadStakingInfo(): Promise<Account> {

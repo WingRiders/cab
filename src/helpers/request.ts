@@ -1,9 +1,12 @@
 import 'isomorphic-fetch'
+
+import {omit} from 'lodash'
+
 import {DELAY_AFTER_TOO_MANY_REQUESTS} from '@/constants'
 import {CabInternalError, CabInternalErrorReason} from '@/errors'
+
 import {throwIfEpochBoundary} from './epochBoundaryUtils'
 import {sleep} from './sleep'
-import {omit} from 'lodash'
 
 // remove authorization and credential headers
 const sanitizeLogs = (params?: RequestInit) => omit(params, ['credentials', 'headers'])

@@ -1,14 +1,16 @@
+import {BigNumber} from 'bignumber.js'
+import {Decoder, encode, Tagged} from 'borc'
+import fromPairs from 'lodash/fromPairs'
+import range from 'lodash/range'
+
 import {MAX_INT64, MIN_INT64} from '@/constants'
 import {CabInternalError, CabInternalErrorReason} from '@/errors'
 import {BaseDatumConstr} from '@/ledger/plutus'
-import {TxDatum, TxDatumConstr} from '@/types/transaction'
-import {BigNumber} from 'bignumber.js'
-import {encode, Tagged, Decoder} from 'borc'
-import {CborInt64} from './CborInt64'
+import {TxDatum, TxDatumConstr, TxSimpleDatum} from '@/types/transaction'
+
 import {CborIndefiniteLengthArray} from './CborIndefiniteLengthArray'
-import {SORT_ORDER, MT, toType, ARRAY_ENCODING} from './cborTypes'
-import range from 'lodash/range'
-import fromPairs from 'lodash/fromPairs'
+import {CborInt64} from './CborInt64'
+import {ARRAY_ENCODING, MT, SORT_ORDER, toType} from './cborTypes'
 
 /**
  * Encodes script datum
@@ -120,10 +122,12 @@ export class CborizedTxDatum {
           if (this.data.lte(MAX_INT64) && this.data.gte(MIN_INT64)) {
             success = encoder.pushAny(new CborInt64(this.data))
           } else {
-            success = encoder._pushBigNumber(this.data)
+            success = encoder._pushBigNumber(encoder, this.data)
           }
         } else if ((this.data as TxDatumConstr).__typeConstr) {
           success = encoder.pushAny(new CborizedTxDatumConstr(this.data as TxDatumConstr))
+        } else if ((this.data as TxSimpleDatum).__simpleDatum) {
+          success = encoder.pushAny(new CborizedTxDatum((this.data as TxSimpleDatum).data))
         } else {
           success = encoder.pushAny(
             new CborizedTxDatum(new Map(Object.entries(this.data)), this.sortOrder, this.arrayEncoding)

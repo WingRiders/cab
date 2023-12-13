@@ -1,5 +1,5 @@
-import {Asset, Token, TokenBundle} from '@/types'
 import {matchAsset} from '@/ledger/assets/compareAssets'
+import {Asset, Token, TokenBundle} from '@/types'
 
 export const isNonEmptyTokenBundle = (
   tokenBundle: TokenBundle | null | undefined

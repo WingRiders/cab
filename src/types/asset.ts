@@ -1,4 +1,4 @@
-import {HexString, Lovelace, TokenBundle, AssetQuantity} from './base'
+import {AssetQuantity, HexString, Lovelace, TokenBundle} from './base'
 
 export type OrderedTokenBundle = {
   policyId: string

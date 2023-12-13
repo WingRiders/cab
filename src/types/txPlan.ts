@@ -1,18 +1,22 @@
-import {ProtocolParameters} from './protocolParameters'
-import {AddrKeyHash, BIP32Path} from './address'
+import {AddrKeyHash, BIP32Path, ScriptHash} from './address'
 import {Address, HexString, Lovelace, TokenBundle} from './base'
+import {ProtocolParameters} from './protocolParameters'
 import {
-  UTxO,
+  ReferenceScript,
   TxCertificate,
-  TxInput,
-  TxOutput,
-  TxWithdrawal,
   TxDatum,
+  TxInput,
+  TxInputRef,
+  TxMetadata,
+  TxMetadatum,
+  TxMintRedeemer,
+  TxOutput,
   TxRedeemer,
   TxScript,
-  TxMintRedeemer,
+  TxScriptSource,
   TxSpendRedeemer,
-  TxMetadata,
+  TxWithdrawal,
+  UTxO,
 } from './transaction'
 
 export type ValidityInterval = {
@@ -30,16 +34,30 @@ export type GenericInput =
     }
   | {
       isScript: true
+      isReferenceScript?: false
       utxo: UTxO // script input that contain a datum if necessary
       redeemer: Omit<TxSpendRedeemer, 'ref'> // the reference is autofilled
       script: TxScript
     }
+  | {
+      isScript: true
+      isReferenceScript: true
+      utxo: UTxO
+      redeemer: Omit<TxSpendRedeemer, 'ref'> // the reference is autofilled
+      scriptHash: ScriptHash
+    }
+
+export type ReferenceInput = TxInputRef & {datum?: TxDatum}
 
 export type GenericOutput = {
   address: Address
   coins: Lovelace
   tokenBundle: TokenBundle
   datum?: TxDatum
+
+  // introduced with babbage & Plutus v2
+  inlineDatum?: boolean
+  inlineScript?: TxScript
 
   /**
    * Mark this output as the change output.
@@ -51,13 +69,17 @@ export type GenericOutput = {
 
 export type MintScript = {
   tokenBundle: TokenBundle // ⚠️tokens with the same policyId
-  script: TxScript
   redeemer: Omit<TxMintRedeemer, 'ref'> // the reference will be autofilled
+  script: TxScriptSource
 }
 
 export enum TxPlanType {
   LOOSE,
   STRICT,
+  // babbage versions that support reference inputs
+  // and collateral output
+  LOOSE_BABBAGE,
+  STRICT_BABBAGE,
 }
 
 export type CatalystVotingRegistrationData = {
@@ -74,9 +96,30 @@ export type CatalystVotingSignature = HexString
 
 export type TxMessage = string[]
 
+// https://cips.cardano.org/cips/cip25/
+export type TxNftMetadatum = {
+  policyId: HexString
+  assetName: HexString
+  name: string
+  image: string
+  description?: string
+  mediaType?: string
+  files?: Array<{
+    name: string
+    mediaType: string
+    src: string
+  }>
+  // these props will be unwrapped alongside the props above
+  otherProperties?: Map<string, TxMetadatum>
+}
+
 export type TxPlanMetadata = {
   message?: TxMessage
   custom?: TxMetadata
+  nfts?: {
+    version: number // 1 | 2
+    data: TxNftMetadatum[]
+  }
 
   // catalyst voting
   // the signature needs to be generated using the wallet
@@ -89,26 +132,36 @@ export type TxPlanArgs = {
   planType?: TxPlanType
   planId: string
   inputs?: GenericInput[]
-  collateralInputs?: UTxO[] // ada-only utxos
+  // referenceInputs for reference scripts and mint reference scripts will be autofilled
+  referenceInputs?: ReferenceInput[]
+  referenceScripts?: ReferenceScript[]
   outputs?: GenericOutput[]
   mint?: MintScript[]
   requiredSigners?: AddrKeyHash[]
   certificates?: TxCertificate[]
   withdrawals?: TxWithdrawal[]
   validityInterval?: ValidityInterval
-  potentialCollaterals?: UTxO[]
   protocolParameters: ProtocolParameters
   metadata?: TxPlanMetadata
+
+  // collaterls
+  potentialCollaterals?: UTxO[]
+  collateralInputs?: UTxO[] // ada-only utxos
+  // the collateral coins and token amounts will be automatically calculated
+  // if not set an output will be created to the change address
+  collateralOutput?: GenericOutput
 }
 
 export type TxPlanDraft = {
   inputs: TxInput[]
+  referenceInputs?: TxInputRef[]
   collateralInputs?: TxInput[]
+  collateralOutput?: TxOutput
   outputs: TxOutput[]
   certificates: TxCertificate[]
   withdrawals: TxWithdrawal[]
   mint?: TokenBundle
-  scripts?: TxScript[]
+  scripts?: TxScriptSource[]
   datums?: TxDatum[]
   redeemers?: TxRedeemer[]
   planId?: string
@@ -132,21 +185,31 @@ export type TxPlanResult =
 
 export interface TxPlan {
   inputs: Array<TxInput>
-  collateralInputs: Array<TxInput>
+  referenceInputs?: Array<TxInputRef>
+
   outputs: Array<TxOutput>
   change: Array<TxOutput>
-  certificates: Array<TxCertificate>
-  deposit: Lovelace
   additionalLovelaceAmount: Lovelace
+
   fee: Lovelace
   baseFee: Lovelace
-  mint?: TokenBundle
-  withdrawals: Array<TxWithdrawal>
-  datums?: Array<TxDatum>
-  scripts?: Array<TxScript>
-  redeemers?: Array<TxRedeemer>
-  planId?: string
+
+  collateralInputs: Array<TxInput>
+  collateralOutput?: TxOutput // optional output for collaterals
+  totalCollateral?: Lovelace // the collateral amount
+
   requiredSigners?: Array<AddrKeyHash>
+  mint?: TokenBundle
+
+  datums?: Array<TxDatum>
+  scripts?: Array<TxScriptSource>
+  redeemers?: Array<TxRedeemer>
+
+  certificates: Array<TxCertificate>
+  deposit: Lovelace
+  withdrawals: Array<TxWithdrawal>
+  planId?: string
+
   protocolParameters: ProtocolParameters
   metadata?: TxPlanMetadata
 

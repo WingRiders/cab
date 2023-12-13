@@ -2,10 +2,11 @@ import {CborAPI} from './cborApi'
 import {JsAPI} from './jsApi'
 
 export type WalletOptions = {
-  appId: string
+  /** @deprecated */
+  appId: string // TODO: remove, it's not in the CIP
 }
 
-export interface Wallet {
+export interface StandardWallet {
   /**
    * The API is split into two stages to maintain the user's privacy,
    * as the user will have to consent to `wallet.enable()` in order for the dApp to read
@@ -22,7 +23,6 @@ export interface Wallet {
    * @throws APIError
    */
   enable(options?: WalletOptions): Promise<CborAPI>
-  enableJs(options?: WalletOptions): Promise<JsAPI>
 
   /**
    * Returns true if the dApp is already connected to the user's wallet,
@@ -53,12 +53,22 @@ export interface Wallet {
    */
   icon: string
 
+  /**
+   * New or non-standard features may be present under this namespace.
+   */
   experimental?: {
     /**
      * A bech32-encoded string used by Eternl for the DApp Store comfort fee.
      */
     feeAddress?: string
   }
+}
+
+export interface Wallet extends StandardWallet {
+  /**
+   *  Analogous to {@link enable()} but returning a JS-based API instead of the standard CBOR one.
+   */
+  enableJs(options?: WalletOptions): Promise<JsAPI>
 
   invalidateCache?(): void
 }

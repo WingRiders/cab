@@ -11,6 +11,7 @@ export enum CabInternalErrorReason {
   NetworkError = 'NetworkError',
   OutputTooSmall = 'OutputTooSmall',
   OutputTooBig = 'OutputTooBig',
+  NumberTooBig = 'NumberTooBig',
   RewardsBalanceTooLow = 'RewardsBalanceTooLow',
   ServerError = 'ServerError',
   TokenNotFound = 'TokenNotFound',
@@ -20,6 +21,7 @@ export enum CabInternalErrorReason {
   TransactionSubmissionTimedOut = 'TransactionSubmissionTimedOut',
   TxTooBig = 'TxTooBig',
   TxSignError = 'TxSignError',
+  MaxTxExUnitsExceeded = 'MaxTxExUnitsExceeded',
   PoolRegTxParserError = 'PoolRegTxParserError',
   PoolRegIncorrectBufferLength = 'PoolRegIncorrectBufferLength',
   PoolRegDuplicateOwners = 'PoolRegDuplicateOwners',
@@ -27,6 +29,7 @@ export enum CabInternalErrorReason {
   PoolRegInvalidRelay = 'PoolRegInvalidRelay',
   PoolRegInvalidMetadata = 'PoolRegInvalidMetadata',
   Error = 'Internal Error',
+  Unsupported = 'Unsupported',
   /*
   SendAddressInvalidAddress = 'SendAddressInvalidAddress',
   SendAddressPoolId = 'SendAddressPoolId',

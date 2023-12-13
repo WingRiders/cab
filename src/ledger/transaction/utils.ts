@@ -1,38 +1,33 @@
 import {encode} from 'borc'
 import {blake2b} from 'cardano-crypto.js'
 import {uniq} from 'lodash'
-import {
-  Address,
-  BigNumber,
-  Lovelace,
-  HexString,
-  Hash32String,
-  TokenBundle,
-  ZeroLovelace,
-} from '@/types/base'
+
+import {bech32Encode} from '@/helpers'
+import {fromFraction} from '@/helpers/fromFraction'
+import {aggregateTokenBundles} from '@/ledger/assets/tokenFormatter'
+import {GenericOutput, TxPlan} from '@/types'
 import {AddrKeyHash} from '@/types/address'
+import {Address, BigNumber, HexString, Lovelace, TokenBundle, ZeroLovelace} from '@/types/base'
+import {ProtocolParameters} from '@/types/protocolParameters'
 import {
   TxCertificate,
   TxCertificateType,
-  TxInput,
-  TxOutput,
-  TxWithdrawal,
-  TxExUnits,
   TxDatum,
+  TxExUnits,
+  TxInput,
+  TxInputRef,
+  TxOutput,
+  TxOutputType,
   TxRedeemer,
-  TxScript,
+  TxScriptSource,
+  TxWithdrawal,
 } from '@/types/transaction'
-import {estimateAdditionalCollateralSize, estimateTxSize} from './estimateSize'
-import {aggregateTokenBundles} from '@/ledger/assets/tokenFormatter'
-import {DATA_HASH_SIZE_IN_WORDS, POLICY_ID_SIZE} from './txConstants'
-import {CborizedTxDatum} from './cbor/CborizedTxDatum'
-import {ProtocolParameters} from '@/types/protocolParameters'
-import {fromFraction} from '@/helpers/fromFraction'
-import {bech32Encode} from '@/helpers'
-import {GenericOutput} from '@/types'
-import {isAlonzoProtocolParameters} from '@/helpers/protocolParameters'
-import {cborizeSingleTxOutput} from './cbor/cborize'
 import {TxPlanMetadata} from '@/types/txPlan'
+
+import {cborizeSingleTxOutput} from './cbor/cborize'
+import {CborizedTxDatum} from './cbor/CborizedTxDatum'
+import {estimateAdditionalCollateralSize, estimateTxSize} from './estimateSize'
+import {POLICY_ID_SIZE} from './txConstants'
 
 /**
  * Computes the size required to store the included value in an UTxO.
@@ -68,78 +63,41 @@ export const computeValueSize = (multiasset: TokenBundle = []) => {
   return 6 + roundupBytesToWords(numAssets * 12 + sumAssetNameLengths + numPIDs * policyIdSize)
 }
 
-const computeMinUTxOLovelaceAmountAlonzo = (
-  coinsPerUtxoWord: number,
-  tokenBundle: TokenBundle,
-  datumHash?: Hash32String
-): Lovelace => {
-  const txOutLengthNoValue = 14
-  const txInLength = 7
-  const utxoEntrySizeWithoutValue = 6 + txOutLengthNoValue + txInLength // 27
-
-  const utxoSize =
-    utxoEntrySizeWithoutValue + computeValueSize(tokenBundle) + (datumHash ? DATA_HASH_SIZE_IN_WORDS : 0)
-
-  const lovelaceAmount = new Lovelace(coinsPerUtxoWord).times(utxoSize) as Lovelace
-  return lovelaceAmount
-}
-
 // minUTxOValue(output) =  |serialise(output)| * coinsPerUTxOByte
-const computeMinUTxOLovelaceAmountBabbage = (
-  coinsPerUtxoByte: number,
-  address: Address,
-  tokenBundle: TokenBundle,
-  datumHash?: Hash32String
-): Lovelace => {
-  const cborOutput = encode(
-    cborizeSingleTxOutput({
-      isChange: false,
-      address,
-      coins: ZeroLovelace,
-      tokenBundle,
-      dataHash: datumHash,
-    })
-  )
+export function computeMinUTxOLovelaceAmount({
+  protocolParameters,
+  output,
+}: {
+  protocolParameters: ProtocolParameters
+  output: TxOutput
+}): Lovelace {
+  const cborOutput = encode(cborizeSingleTxOutput(output))
 
   // Formal specification states this formula to calculate he min UTxO lovelace is:
   // (serSize txout + 160) ∗ coinsPerUTxOByte pp
   //
-  // From https://hydra.iohk.io/build/15751178/download/1/babbage-changes.pdf:
-  // In the UTXO rule, we switch from a manual estimation of the size consumed by UTxO entries
-  // to an estimation using the serialization. However, since the TxIn used as a key in the UTxO map
-  // is not part of the serialization, we need to account for it manually. By itself it is 40 bytes, but we
-  // add another 120 bytes of overhead for the in-memory representation of Haskell data.
-  //
-  // This min UTxO lovelace is calculated without the size of the added coins in bytes
-  // Therefore we also account for extra 4 bytes, which should be enough to include up to 2^32-1 Lovelace
-  // in the output. That should be always enough.
-  return new Lovelace(cborOutput.byteLength).plus(160 + 4).times(coinsPerUtxoByte) as Lovelace
-}
-
-export const computeMinUTxOLovelaceAmount = ({
-  protocolParameters,
-  address,
-  tokenBundle,
-  datumHash,
-}: {
-  protocolParameters: ProtocolParameters
-  address: Address
-  tokenBundle: TokenBundle
-  datumHash?: Hash32String
-}): Lovelace => {
-  if (isAlonzoProtocolParameters(protocolParameters)) {
-    return computeMinUTxOLovelaceAmountAlonzo(
-      protocolParameters.coinsPerUtxoWord,
-      tokenBundle,
-      datumHash
-    )
+  // From https://cips.cardano.org/cips/cip55/#thenewminimumlovelacecalculation:
+  // In the Babbage era, unspent transaction outputs will be required to contain at least
+  // (160 + |serialized_output|) * coinsPerUTxOByte
+  // many lovelace. The constant overhead of 160 bytes accounts for the transaction input
+  // and the entry in the UTxO map data structure (20 words * 8 bytes).
+  const calculatedCoins = new Lovelace(cborOutput.byteLength)
+    .plus(160)
+    .times(protocolParameters.coinsPerUtxoByte) as Lovelace
+  if (calculatedCoins.gt(output.coins)) {
+    // If output.coins changes, the CBOR length of TxOutput also changes, so we need to recalculate the coins needed.
+    // The recursion will end at the moment cborOutput.byteLength won't increase
+    // and that will eventually always happen, because every time calculatedCoins increases,
+    // the next increase is smaller (roughly base-2 logarithm of the previous increase).
+    return computeMinUTxOLovelaceAmount({
+      protocolParameters,
+      output: {
+        ...output,
+        coins: calculatedCoins,
+      },
+    })
   }
-  return computeMinUTxOLovelaceAmountBabbage(
-    protocolParameters.coinsPerUtxoByte,
-    address,
-    tokenBundle,
-    datumHash
-  )
+  return calculatedCoins
 }
 
 export function txFeeForBytes(txSizeInBytes: number, txFeePerByte: number) {
@@ -190,13 +148,14 @@ export function computeAdditionalCollateralFee(pParams: ProtocolParameters, init
 
 type ComputeTxFeeParams = {
   inputs: Array<TxInput>
+  referenceInputs?: Array<TxInputRef>
   collateralInputs?: Array<TxInput>
   outputs: Array<TxOutput>
   certificates?: Array<TxCertificate>
   withdrawals?: Array<TxWithdrawal>
   datums?: Array<TxDatum>
   redeemers?: Array<TxRedeemer>
-  scripts?: Array<TxScript>
+  scripts?: Array<TxScriptSource>
   mint?: TokenBundle
   requiredSigners?: Array<AddrKeyHash>
   protocolParameters: ProtocolParameters
@@ -205,6 +164,7 @@ type ComputeTxFeeParams = {
 
 export function computeRequiredTxFee({
   inputs,
+  referenceInputs = [],
   collateralInputs = [],
   outputs,
   certificates = [],
@@ -220,6 +180,7 @@ export function computeRequiredTxFee({
   const fee = txFeeFunction(
     estimateTxSize({
       inputs,
+      referenceInputs,
       outputs,
       certificates,
       withdrawals,
@@ -269,11 +230,16 @@ export const createTokenChangeOutputs = ({
   const outputs: TxOutput[] = []
   for (let i = 0; i < nOutputs; i++) {
     const tokenBundle = changeTokenBundle.slice(i * maxOutputTokens, (i + 1) * maxOutputTokens)
-    outputs.push({
+    const output = {
+      type: TxOutputType.LEGACY,
       isChange: true,
       address: changeAddress,
-      coins: computeMinUTxOLovelaceAmount({protocolParameters, address: changeAddress, tokenBundle}),
+      coins: ZeroLovelace,
       tokenBundle,
+    }
+    outputs.push({
+      ...output,
+      coins: computeMinUTxOLovelaceAmount({protocolParameters, output}),
     })
   }
   return outputs
@@ -298,3 +264,7 @@ export const createEmptyChangePlaceholder = ({
 export function hashSerialized(data: any): string {
   return blake2b(encode(data), 32).toString('hex')
 }
+
+// Collateral is needed when script is in inputs or reference inputs.
+// txPlan.scripts contains both.
+export const requiresCollateral = (txPlan: TxPlan) => !!txPlan.scripts?.length

@@ -1,4 +1,4 @@
-import {Network, ProtocolMagic, NetworkId, NetworkName} from '@/types/network'
+import {Network, NetworkId, NetworkName, ProtocolMagic} from '@/types/network'
 
 export const NETWORKS: Record<NetworkName, Network> = {
   [NetworkName.MAINNET]: {

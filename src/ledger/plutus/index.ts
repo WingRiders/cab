@@ -1,9 +1,9 @@
-export {BaseDatumConstr} from './BaseDatumConstr'
-export {parseFromSchemaJson, toSchemaJson, assertTxDatumConstr, asTxDatumConstr} from './transform'
-export * from './datumTypes'
 export {
-  addressToBechAddress,
   addressCredentialToHexString,
   addressStakingCredentialToAddressCredential,
+  addressToBechAddress,
   areAddressesEqual,
 } from './address'
+export {BaseDatumConstr, SimpleDatum} from './BaseDatumConstr'
+export * from './datumTypes'
+export {assertTxDatumConstr, asTxDatumConstr, parseFromSchemaJson, toSchemaJson} from './transform'

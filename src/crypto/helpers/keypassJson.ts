@@ -1,9 +1,11 @@
 /* based on https://github.com/input-output-hk/cardano-crypto/blob/master/cbits/encrypted_sign.c */
 
 import {decode, encode} from 'borc'
+import {blake2b, cardanoMemoryCombine, scrypt} from 'cardano-crypto.js'
 import randombytes from 'randombytes'
-import {cardanoMemoryCombine, blake2b, scrypt} from 'cardano-crypto.js'
+
 import {HARDENED_THRESHOLD} from '@/ledger/address'
+
 import {derivationSchemes} from '../derivationSchemes'
 
 function transformPassword(password) {
@@ -146,4 +148,4 @@ async function exportWalletSecretDef(walletSecretDef, password, walletName) {
   }
 }
 
-export {importWalletSecretDef, exportWalletSecretDef, isWalletExportEncrypted}
+export {exportWalletSecretDef, importWalletSecretDef, isWalletExportEncrypted}

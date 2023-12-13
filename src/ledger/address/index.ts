@@ -1,25 +1,29 @@
-export {
-  addressType,
-  encodeAddress,
-  bechAddressToHex,
-  xpubHexToCborPubHex,
-  xpub2pub,
-  isBase,
-  addressToHex,
-  encodeCatalystVotingKey,
-  isShelleyPath,
-  isShelleyFormat,
-  base58AddressToHex,
-  xpub2ChainCode,
-  stakingAddressFromXpub,
-  baseAddressFromXpub,
-  spendingHashFromAddress,
-  stakingHashFromAddress,
-  safeStakingHashFromAddress,
-  hasSpendingScript,
-  rewardAddressFromAddress,
-  compareAddressSpendingHash,
-} from './addressHelpers'
 export {HARDENED_THRESHOLD} from './addressConstants'
+export {
+  addressToHex,
+  addressType,
+  base58AddressToHex,
+  baseAddressFromXpub,
+  bechAddressToHex,
+  compareAddressSpendingHash,
+  encodeAddress,
+  encodeCatalystVotingKey,
+  hasSpendingScript,
+  isBase,
+  isShelleyFormat,
+  isShelleyPath,
+  rewardAddressFromAddress,
+  safeStakingHashFromAddress,
+  spendingHashFromAddress,
+  stakingAddressFromXpub,
+  stakingHashFromAddress,
+  xpub2ChainCode,
+  xpub2pub,
+  xpubHexToCborPubHex,
+} from './addressHelpers'
+export {
+  scriptHashToAddress,
+  scriptHashToBaseAddress,
+  scriptHashToEnterpriseAddress,
+} from './scriptAddress'
 export {shelleyBaseAddressProvider} from './shelleyAddressProvider'
-export {scriptHashToEnterpriseAddress} from './scriptAddress'

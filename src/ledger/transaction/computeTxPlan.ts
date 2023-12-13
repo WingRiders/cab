@@ -1,32 +1,35 @@
-import {Lovelace, ZeroLovelace} from '@/types/base'
-import {TxCertificateType, TxInput, TxOutput} from '@/types/transaction'
-import {TxPlan, TxPlanDraft, TxPlanResult} from '@/types/txPlan'
+import {encode} from 'borc'
+
+import {MAX_INT64} from '@/constants'
 import {CabInternalError, CabInternalErrorReason, UnexpectedErrorReason} from '@/errors'
-import {aggregateTokenBundles, getTokenBundlesDifference} from '@/ledger/assets/tokenFormatter'
+import {UnexpectedErrorSubCode} from '@/errors/unexpectedErrorReason'
+import {sumCoins} from '@/helpers'
+import {removeEmptyArray} from '@/helpers/removeEmptyArray'
 import {removeNullFields} from '@/helpers/removeNullFields'
+import {aggregateTokenBundles, getTokenBundlesDifference} from '@/ledger/assets/tokenFormatter'
+import {Address, Lovelace, ZeroLovelace} from '@/types/base'
+import {TxCertificateType, TxInput, TxOutput, TxOutputType} from '@/types/transaction'
+import {TxPlan, TxPlanDraft, TxPlanResult} from '@/types/txPlan'
+
 import {cborizeSingleTxOutput} from './cbor/cborize'
+import {estimateTxSize} from './estimateSize'
+import {MAX_OUTPUT_TOKENS, MIN_UTXO_VALUE} from './txConstants'
 import {
   computeAdditionalCollateralFee,
   computeMinUTxOLovelaceAmount,
   computeRequiredDeposit,
   computeRequiredTxFee,
   createTokenChangeOutputs,
+  requiresCollateral,
 } from './utils'
-import {encode} from 'borc'
-import {MAX_OUTPUT_TOKENS, MIN_UTXO_VALUE} from './txConstants'
-import {MAX_INT64} from '@/constants'
-import {estimateTxSize} from './estimateSize'
-import {removeEmptyArray} from '@/helpers/removeEmptyArray'
-import {sumCoins} from '@/helpers'
-import {UnexpectedErrorSubCode} from '@/errors/unexpectedErrorReason'
 
 type ComputeTxPlanParams = TxPlanDraft & {
   availableCollateralInputs: TxInput[]
-  possibleChange: TxOutput
+  changeAddress: Address
 }
 
 type ComputeStrictTxPlanParams = TxPlanDraft & {
-  possibleChange: TxOutput
+  changeAddress: Address
 }
 
 /*
@@ -61,15 +64,14 @@ const sumRewards = (txos: {rewards: Lovelace}[]) =>
  * We might need to add additional collaterals or if the user haven't defined
  * any collaterals, we add some extra.
  * @param txPlan the current plan that potentially contains some collaterals
- * @param availableCollaterInputs all collaterals that are in the account
+ * @param availableCollateralInputs all collaterals that are in the account
  * @returns
  */
 export function addCollateralsIfNeeded(
   txPlan: TxPlan,
-  availableCollaterInputs: TxInput[]
+  availableCollateralInputs: TxInput[]
 ): {error: string | null; txPlan: TxPlan} {
-  if (!txPlan.scripts || txPlan.scripts.length === 0) {
-    // only scripts need collaterals
+  if (!requiresCollateral(txPlan)) {
     return {error: null, txPlan}
   }
 
@@ -82,7 +84,7 @@ export function addCollateralsIfNeeded(
 
   if (currentCollateralSum.gt(currentCollateralNeeded)) {
     return {error: null, txPlan}
-  } else if (availableCollaterInputs.length === 0) {
+  } else if (availableCollateralInputs.length === 0) {
     return {
       error: 'collaterals required',
       txPlan,
@@ -90,7 +92,7 @@ export function addCollateralsIfNeeded(
   }
 
   // We are trying to find the smallest collateral that fits our requirements
-  const collaterals = [...availableCollaterInputs].sort((a, b) => a.coins.comparedTo(b.coins))
+  const collaterals = [...availableCollateralInputs].sort((a, b) => a.coins.comparedTo(b.coins))
 
   let collateralValueNeeded: Lovelace
 
@@ -165,10 +167,11 @@ export function addCollateralsIfNeeded(
 
 export function computeTxPlan({
   inputs,
+  referenceInputs = [],
   collateralInputs = [],
   availableCollateralInputs,
   outputs,
-  possibleChange,
+  changeAddress,
   certificates,
   withdrawals,
   datums,
@@ -205,6 +208,7 @@ export function computeTxPlan({
 
   const draftWithoutExtraCollaterals: TxPlan = {
     inputs,
+    referenceInputs,
     collateralInputs,
     outputs,
     change: [],
@@ -292,8 +296,9 @@ export function computeTxPlan({
   // although totalOutput < totalInput so change has to be calculated
 
   const adaOnlyChangeOutput: TxOutput = {
+    type: TxOutputType.LEGACY,
     isChange: true,
-    address: possibleChange.address,
+    address: changeAddress,
     coins: ZeroLovelace,
     tokenBundle: [],
   }
@@ -363,7 +368,7 @@ export function computeTxPlan({
   // From this point on, change includes also tokens
 
   const tokenChangeOutputs: TxOutput[] = createTokenChangeOutputs({
-    changeAddress: possibleChange.address,
+    changeAddress,
     changeTokenBundle: tokenDifference,
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     protocolParameters,
@@ -473,9 +478,10 @@ export function computeTxPlan({
  */
 export function computeStrictTxPlan({
   inputs,
+  referenceInputs = [],
   collateralInputs = [],
   outputs,
-  possibleChange,
+  changeAddress,
   certificates,
   withdrawals,
   datums,
@@ -501,6 +507,7 @@ export function computeStrictTxPlan({
 
   const draftPlan: TxPlan = {
     inputs,
+    referenceInputs,
     collateralInputs,
     outputs,
     change: [],
@@ -543,11 +550,7 @@ export function computeStrictTxPlan({
     feeWithoutChange,
     protocolParameters.collateralPercentage
   )
-  if (
-    draftPlan.scripts &&
-    draftPlan.scripts.length > 0 &&
-    totalCollaterals.lt(requiredCollateralsWithoutChange)
-  ) {
+  if (requiresCollateral(draftPlan) && totalCollaterals.lt(requiredCollateralsWithoutChange)) {
     return {
       success: false,
       minimalLovelaceAmount: ZeroLovelace,
@@ -602,8 +605,9 @@ export function computeStrictTxPlan({
 
   if (!hasChangePlaceholder) {
     const changeOutputDraft: TxOutput = {
+      type: TxOutputType.LEGACY,
       isChange: true,
-      address: possibleChange.address,
+      address: changeAddress,
       coins: ZeroLovelace,
       tokenBundle: [],
     }
@@ -631,11 +635,7 @@ export function computeStrictTxPlan({
     feeWithChange,
     protocolParameters.collateralPercentage
   )
-  if (
-    draftPlan.scripts &&
-    draftPlan.scripts.length > 0 &&
-    totalCollaterals.lt(requiredCollateralsWithChange)
-  ) {
+  if (requiresCollateral(draftPlan) && totalCollaterals.lt(requiredCollateralsWithChange)) {
     return {
       success: false,
       minimalLovelaceAmount: ZeroLovelace,
@@ -660,8 +660,7 @@ export function computeStrictTxPlan({
     changeOutputRef.coins.isLessThan(
       computeMinUTxOLovelaceAmount({
         protocolParameters,
-        address: changeOutputRef.address,
-        tokenBundle: changeOutputRef.tokenBundle,
+        output: changeOutputRef,
       })
     )
   ) {
@@ -726,38 +725,40 @@ export const validateTxPlan = (txPlanResult: TxPlanResult): TxPlanResult => {
 
   // we cant build the transaction with big enough change lovelace
   if (
-    change.some(({address, coins, tokenBundle, dataHash}) =>
-      coins.lt(
+    change.some((output) =>
+      output.coins.lt(
         computeMinUTxOLovelaceAmount({
           protocolParameters,
-          address,
-          tokenBundle,
-          datumHash: dataHash,
+          output,
         })
       )
     )
   ) {
     return {
       ...noTxPlan,
-      error: {code: CabInternalErrorReason.ChangeOutputTooSmall},
+      error: {
+        code: CabInternalErrorReason.ChangeOutputTooSmall,
+        reason: 'Change output too small',
+      },
     }
   }
 
   if (
-    outputs.some(({address, coins, tokenBundle, dataHash}) =>
-      coins.lt(
+    outputs.some((output) =>
+      output.coins.lt(
         computeMinUTxOLovelaceAmount({
           protocolParameters,
-          address,
-          tokenBundle,
-          datumHash: dataHash,
+          output,
         })
       )
     )
   ) {
     return {
       ...noTxPlan,
-      error: {code: CabInternalErrorReason.OutputTooSmall},
+      error: {
+        code: CabInternalErrorReason.OutputTooSmall,
+        reason: 'Output too small',
+      },
     }
   }
 
@@ -768,12 +769,16 @@ export const validateTxPlan = (txPlanResult: TxPlanResult): TxPlanResult => {
   ) {
     return {
       ...noTxPlan,
-      error: {code: CabInternalErrorReason.OutputTooBig},
+      error: {
+        code: CabInternalErrorReason.OutputTooBig,
+        reason: 'Output too big',
+      },
     }
   }
 
   const estimatedSize = estimateTxSize({
     ...txPlan,
+    referenceInputs: txPlan.referenceInputs || [],
     datums: txPlan.datums || [],
     redeemers: txPlan.redeemers || [],
     scripts: txPlan.scripts || [],
@@ -784,6 +789,7 @@ export const validateTxPlan = (txPlanResult: TxPlanResult): TxPlanResult => {
       ...noTxPlan,
       error: {
         code: CabInternalErrorReason.TxTooBig,
+        reason: 'Transaction too big',
         message: `Size ${estimatedSize} > ${protocolParameters.maxTxSize}`,
       },
     }
@@ -792,7 +798,10 @@ export const validateTxPlan = (txPlanResult: TxPlanResult): TxPlanResult => {
   if (collateralInputs.some((input) => input.tokenBundle.length > 0)) {
     return {
       ...noTxPlan,
-      error: {code: CabInternalErrorReason.BadCollaterals},
+      error: {
+        code: CabInternalErrorReason.BadCollaterals,
+        reason: 'Bad collaterals because of non-empty tokenBundle',
+      },
     }
   }
   const requireCollateral =
@@ -800,13 +809,24 @@ export const validateTxPlan = (txPlanResult: TxPlanResult): TxPlanResult => {
       ? feeToRequiredCollateral(fee, protocolParameters.collateralPercentage)
       : new Lovelace(0)
   const availableCollateral = sumCoins(collateralInputs)
-  if (
-    requireCollateral.gt(availableCollateral) ||
-    collateralInputs.length > protocolParameters.maxCollateralInputs
-  ) {
+  if (requireCollateral.gt(availableCollateral)) {
     return {
       ...noTxPlan,
-      error: {code: CabInternalErrorReason.BadCollaterals},
+      error: {
+        code: CabInternalErrorReason.BadCollaterals,
+        reason: 'Bad collaterals',
+        message: `Required collateral ${requireCollateral}, available ${availableCollateral}`,
+      },
+    }
+  }
+  if (collateralInputs.length > protocolParameters.maxCollateralInputs) {
+    return {
+      ...noTxPlan,
+      error: {
+        code: CabInternalErrorReason.BadCollaterals,
+        reason: 'Bad collaterals',
+        message: `${collateralInputs.length} collateral inputs > ${protocolParameters.maxCollateralInputs}`,
+      },
     }
   }
 
@@ -821,7 +841,10 @@ export const validateTxPlan = (txPlanResult: TxPlanResult): TxPlanResult => {
   ) {
     return {
       ...noTxPlan,
-      error: {code: CabInternalErrorReason.RewardsBalanceTooLow},
+      error: {
+        code: CabInternalErrorReason.RewardsBalanceTooLow,
+        reason: 'Rewards balance too low',
+      },
     }
   }
   return txPlanResult

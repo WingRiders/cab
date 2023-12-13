@@ -1,53 +1,39 @@
-import {TxSigned} from '@/ledger/transaction'
-import {DerivationScheme, CryptoProviderFeature} from '@/types/wallet'
-import {ProtocolParameters} from '@/types/protocolParameters'
-import {NetworkId} from '@/types/network'
-import {ICryptoProvider} from '@/crypto/ICryptoProvider'
-import {DEFAULT_TTL_SLOTS} from '@/constants'
-import {AccountManager} from './AccountManager'
-import {CabInternalError, CabInternalErrorReason} from '@/errors'
 import {AccountInfo} from '@/account/Account'
-import {
-  ILedgerStateDataProvider,
-  IOnChainDataProvider,
-  ISubmitTxProvider,
-  TxBlockInfo,
-} from '@/dataProviders'
+import {DEFAULT_TTL_SLOTS} from '@/constants'
+import {ICryptoProvider} from '@/crypto/ICryptoProvider'
+import {CabInternalError, CabInternalErrorReason} from '@/errors'
+import {TxSigned} from '@/ledger/transaction'
+import {IBlockchainExplorer, TxBlockInfo, TxSubmission} from '@/types/blockchainExplorer'
+import {NetworkId} from '@/types/network'
+import {ProtocolParameters} from '@/types/protocolParameters'
+import {CryptoProviderFeature, DerivationScheme} from '@/types/wallet'
 
+import {AccountManager} from './AccountManager'
+
+type WalletConfig = {
+  shouldExportPubKeyBulk: boolean
+  gapLimit: number
+}
+
+type WalletParams = {
+  blockchainExplorer: IBlockchainExplorer
+  cryptoProvider: ICryptoProvider
+  config: WalletConfig
+}
 export class Wallet {
-  private onChainDataProvider: IOnChainDataProvider
-  private ledgerStateDataProvider: ILedgerStateDataProvider
-  private submitTxProvider: ISubmitTxProvider
+  private blockchainExplorer: IBlockchainExplorer
   private cryptoProvider: ICryptoProvider
   private accountManager: AccountManager
   private protocolParameters: ProtocolParameters | null
 
-  constructor({
-    onChainDataProvider,
-    ledgerStateDataProvider,
-    submitTxProvider,
-    cryptoProvider,
-    config,
-  }: {
-    onChainDataProvider: IOnChainDataProvider
-    ledgerStateDataProvider: ILedgerStateDataProvider
-    submitTxProvider: ISubmitTxProvider
-    cryptoProvider: ICryptoProvider
-    config: {
-      shouldExportPubKeyBulk: boolean
-      gapLimit: number
-    }
-  }) {
-    this.onChainDataProvider = onChainDataProvider
-    this.ledgerStateDataProvider = ledgerStateDataProvider
-    this.submitTxProvider = submitTxProvider
+  constructor({blockchainExplorer, cryptoProvider, config}: WalletParams) {
+    this.blockchainExplorer = blockchainExplorer
     this.cryptoProvider = cryptoProvider
 
     this.accountManager = new AccountManager({
       config,
       cryptoProvider,
-      onChainDataProvider,
-      ledgerStateDataProvider,
+      blockchainExplorer,
     })
   }
 
@@ -72,15 +58,25 @@ export class Wallet {
   }
 
   public async calculateTtl(): Promise<number> {
-    const ledgerTip = await this.ledgerStateDataProvider.getLedgerTip()
-    if (ledgerTip.origin) {
-      return DEFAULT_TTL_SLOTS
+    try {
+      const {
+        Right: {bestSlot},
+      } = await this.blockchainExplorer.getBestSlot()
+      return bestSlot + DEFAULT_TTL_SLOTS
+    } catch (e) {
+      throw new CabInternalError(CabInternalErrorReason.NetworkError, {causedBy: e})
     }
-    return ledgerTip.slot + DEFAULT_TTL_SLOTS
   }
 
-  submitTx(signedTx: TxSigned): Promise<{txHash: string}> {
-    return this.submitTxProvider.submitTx(signedTx)
+  submitTx(signedTx: TxSigned): Promise<TxSubmission> {
+    const params = {
+      walletType: this.getWalletName(),
+      walletVersion: this.cryptoProvider.getVersion(),
+      walletDerivationScheme: this.cryptoProvider.getDerivationScheme().type,
+      // TODO: add stake key for debugging purposes
+    }
+    const {txBody, txHash} = signedTx
+    return this.blockchainExplorer.submitTxRaw(txHash, txBody, params)
   }
 
   getWalletSecretDef(): {rootSecret: Buffer | void; derivationScheme: DerivationScheme} {
@@ -90,8 +86,8 @@ export class Wallet {
     }
   }
 
-  fetchTxBlockInfo(txHash: string): Promise<TxBlockInfo | null> {
-    return this.onChainDataProvider.getTxBlockInfo(txHash)
+  fetchTxBlockInfo(txHash): Promise<TxBlockInfo | null> {
+    return this.blockchainExplorer.fetchTxBlockInfo(txHash)
   }
 
   ensureFeatureIsSupported(feature: CryptoProviderFeature) {
@@ -113,12 +109,17 @@ export class Wallet {
     return this.accountManager.getMaxAccountIndex()
   }
 
+  async getPoolInfo(url) {
+    const poolInfo = await this.blockchainExplorer.getPoolInfo(url)
+    return poolInfo
+  }
+
   async getProtocolParameters(): Promise<ProtocolParameters> {
     if (this.protocolParameters) {
       return Promise.resolve(this.protocolParameters)
     }
     try {
-      const pparams = await this.ledgerStateDataProvider.getProtocolParameters()
+      const pparams = await this.blockchainExplorer.getProtocolParameters()
       this.protocolParameters = pparams
       return this.protocolParameters
     } catch (err) {

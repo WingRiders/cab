@@ -1,6 +1,8 @@
+import {BigNumber} from 'bignumber.js'
+
 import {MAX_INT64, MIN_INT64} from '@/constants'
 import {CabInternalError, CabInternalErrorReason} from '@/errors'
-import {BigNumber} from 'bignumber.js'
+
 import {MT, NUMBYTES} from './cborTypes'
 
 export class CborInt64 {
@@ -22,7 +24,7 @@ export class CborInt64 {
         encoder._pushUInt32BE(obj.mod(shift32).toNumber())
       )
     } else {
-      throw new CabInternalError(CabInternalErrorReason.OutputTooBig)
+      throw new CabInternalError(CabInternalErrorReason.NumberTooBig)
     }
   }
 }

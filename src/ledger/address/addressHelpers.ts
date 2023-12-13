@@ -1,20 +1,22 @@
-import {Address, HexString} from '@/types/base'
-import {BIP32Path, StakingHash} from '@/types/address'
+import {encode} from 'borc'
 import {
-  packBaseAddress,
-  packRewardAddress,
-  getAddressType,
   AddressTypes,
   base58,
   bech32,
+  getAddressType,
   getPubKeyBlake2b224Hash,
   getShelleyAddressNetworkId,
-  packEnterpriseAddress,
   hasSpendingScript as ccHasSpendingScript,
+  packBaseAddress,
+  packEnterpriseAddress,
+  packRewardAddress,
 } from 'cardano-crypto.js'
-import {HARDENED_THRESHOLD} from './addressConstants'
+
+import {BIP32Path, StakingHash} from '@/types/address'
+import {Address, HexString} from '@/types/base'
 import {NetworkId} from '@/types/network'
-import {encode} from 'borc'
+
+import {HARDENED_THRESHOLD} from './addressConstants'
 
 export const encodeAddress = (address: Buffer): Address => {
   const addressType = getAddressType(address)

@@ -1,4 +1,4 @@
-import {Token, Asset} from '@/types/base'
+import {Asset, Token} from '@/types/base'
 
 export const tokenToAsset = (token: Token): Asset => ({
   policyId: token.policyId,

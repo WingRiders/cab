@@ -1,21 +1,24 @@
+import {chain, isObject, keyBy} from 'lodash'
+
 import {CabInternalError, CabInternalErrorReason} from '@/errors'
 import {getTxPlan, prepareTxAux, prepareTxWitnessSet, signedTransaction} from '@/ledger/transaction'
 import {getLogger} from '@/logger'
 import {
-  TxPlanArgs,
+  Address,
+  BigNumber,
+  GenericInput,
+  GenericOutput,
+  Lovelace,
+  ProtocolParameters,
   TxExUnits,
+  TxPlan,
+  TxPlanArgs,
+  TxPlanResult,
   TxPlanType,
   UTxO,
-  Address,
-  TxPlanResult,
-  GenericInput,
   ZeroLovelace,
-  GenericOutput,
-  TxPlan,
-  BigNumber,
-  Lovelace,
 } from '@/types'
-import {chain, isObject, keyBy} from 'lodash'
+
 import {orderInputs} from './orderInputs'
 import {orderMintScripts} from './orderMintScripts'
 import {request} from './request'
@@ -38,6 +41,27 @@ export function assertEvaluations(data: unknown): asserts data is Evaluations {
     })
   ) {
     throw new Error('Provided evaluations are not in a valid format')
+  }
+}
+
+export function assertAreEvaluationsValid(
+  evaluations: Evaluations,
+  {maxExecutionUnitsPerTransaction}: ProtocolParameters
+) {
+  const totalTxExUnits = Object.values(evaluations).reduce(
+    (acc, curr) => ({memory: acc.memory + curr.memory, steps: acc.steps + curr.steps}),
+    {memory: 0, steps: 0}
+  )
+
+  if (totalTxExUnits.memory > maxExecutionUnitsPerTransaction.memory) {
+    throw new CabInternalError(CabInternalErrorReason.MaxTxExUnitsExceeded, {
+      message: `Transaction exceeded maximum memory exUnits (used=${totalTxExUnits.memory}, max=${maxExecutionUnitsPerTransaction.memory})`,
+    })
+  }
+  if (totalTxExUnits.steps > maxExecutionUnitsPerTransaction.steps) {
+    throw new CabInternalError(CabInternalErrorReason.MaxTxExUnitsExceeded, {
+      message: `Transaction exceeded maximum steps exUnits (used=${totalTxExUnits.steps}, max=${maxExecutionUnitsPerTransaction.steps})`,
+    })
   }
 }
 
@@ -170,6 +194,8 @@ export async function getEvaluatedTxPlan({
       deposit: new BigNumber(0) as Lovelace,
     }
   }
+
+  // assertAreEvaluationsValid(evaluation.evaluations, origTxPlanArgs.protocolParameters)
 
   const plan = baseTxPlan.txPlan
 

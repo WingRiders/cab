@@ -1,11 +1,9 @@
-export * from './normalize'
-export * from './reverse'
-export * from './parse'
 export {ApiError} from './ApiError'
-export {WalletConnector} from './WalletConnector'
-export {CborToJsApiBridge} from './CborToJsApiBridge'
 export {BridgeError} from './BridgeError'
-export {
-  CborToJsApiWalletConnector,
-  CborToJsApiWalletConnectorOptions,
-} from './CborToJsApiWalletConnector'
+export {CborToJsApiBridge} from './CborToJsApiBridge'
+export type {CborToJsApiWalletConnectorOptions} from './CborToJsApiWalletConnector'
+export {CborToJsApiWalletConnector} from './CborToJsApiWalletConnector'
+export * from './normalize'
+export * from './parse'
+export * from './reverse'
+export {WalletConnector} from './WalletConnector'

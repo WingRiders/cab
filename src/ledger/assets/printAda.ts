@@ -1,5 +1,6 @@
 import {lovelaceToAda} from '@/helpers'
-import {Lovelace, Ada} from '@/types/base'
+import {Ada, Lovelace} from '@/types/base'
+
 import {ADA_DECIMALS} from '../../constants'
 
 export const printAda = (coins: Lovelace, precision = ADA_DECIMALS): string => {

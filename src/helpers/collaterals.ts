@@ -1,3 +1,4 @@
+import {isNonScriptUtxo} from '@/helpers/isNonScriptUtxo'
 import {hasSpendingScript} from '@/ledger/address'
 import {UTxO} from '@/types/transaction'
 
@@ -17,7 +18,10 @@ export const MAX_COLLATERAL_COUNT = 3
 export const isAdaOnlyUtxo = (utxo: UTxO) => utxo.tokenBundle.length === 0 && !utxo.datum
 
 export const isPotentialCollateral = (utxo: UTxO) =>
-  utxo.coins.lte(MAX_COLLATERAL_AMOUNT) && isAdaOnlyUtxo(utxo) && !hasSpendingScript(utxo.address)
+  utxo.coins.lte(MAX_COLLATERAL_AMOUNT) &&
+  isAdaOnlyUtxo(utxo) &&
+  !hasSpendingScript(utxo.address) &&
+  isNonScriptUtxo(utxo)
 
 export const isRecommendedCollateral = (utxo: UTxO) =>
   isPotentialCollateral(utxo) && utxo.coins.gte(MIN_RECOMMENDED_COLLATERAL_AMOUNT)

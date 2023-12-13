@@ -1,8 +1,10 @@
-import JSONBig from 'json-bigint'
 import {BigNumber} from 'bignumber.js'
+import JSONBig from 'json-bigint'
+
 import {CabInternalError, CabInternalErrorReason} from '@/errors'
-import {TxDatum, TxDatumConstr} from '@/types/transaction'
 import {toType} from '@/ledger/transaction/cbor/cborTypes'
+import {TxDatum, TxDatumConstr, TxSimpleDatum} from '@/types/transaction'
+
 import {BaseDatumConstr} from './BaseDatumConstr'
 
 const SchemaJSON = JSONBig({constructorAction: 'preserve'})
@@ -93,6 +95,8 @@ function _toSchemaJson(data: TxDatum): any {
       } else if ((data as TxDatumConstr).__typeConstr) {
         const dataConstr = data as TxDatumConstr
         return {fields: dataConstr.data.map((elem) => _toSchemaJson(elem)), constructor: dataConstr.i}
+      } else if ((data as TxSimpleDatum).__simpleDatum) {
+        return _toSchemaJson((data as TxSimpleDatum).data)
       } else {
         // sort alphabetically
         const entries = Object.entries(data)

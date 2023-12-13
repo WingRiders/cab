@@ -1,6 +1,7 @@
 export * from './address'
 export * from './asset'
 export * from './base'
+export * from './blockchainExplorer'
 export * from './network'
 export * from './protocolParameters'
 export * from './stakepool'

@@ -1,20 +1,21 @@
-import {TxCertificateType} from '@/types'
 import {BigNumber} from 'bignumber.js'
 
+import {TxCertificateType} from '@/types'
+
 import {
-  TxInput,
-  TxOutput,
-  TxStakingKeyRegistrationCert,
-  TxStakingKeyDeregistrationCert,
-  TxDelegationCert,
-  TxStakepoolRegistrationCert,
-  TxMultiHostNameRelay,
-  TxSingleHostIPRelay,
-  TxSingleHostNameRelay,
-  TxRelayTypes,
-  TxWithdrawal,
   _UnsignedTxDecoded,
   TxBodyKeys,
+  TxDelegationCert,
+  TxInput,
+  TxMultiHostNameRelay,
+  TxOutput,
+  TxRelayTypes,
+  TxSingleHostIPRelay,
+  TxSingleHostNameRelay,
+  TxStakepoolRegistrationCert,
+  TxStakingKeyDeregistrationCert,
+  TxStakingKeyRegistrationCert,
+  TxWithdrawal,
 } from './types'
 
 export const isArrayOfType = <T>(value: any, valueGuard: (item: any) => boolean): value is T[] =>

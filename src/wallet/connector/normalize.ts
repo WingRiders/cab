@@ -1,14 +1,15 @@
-import {findIndex, keys, sortBy, uniq} from 'lodash'
-import {addressToHex} from '@/ledger/address'
-import {hashDatum, TxAux} from '@/ledger/transaction'
 import {BigNumber} from 'bignumber.js'
-import {orderTokenBundle} from '@/ledger/assets'
+import {compact, findIndex, keys, sortBy, uniq} from 'lodash'
+
 import * as api from '@/dappConnector'
-import * as cab from '@/types'
-import {AddressWithMeta} from '@/types/wallet'
-import {toType} from '@/ledger/transaction/cbor/cborTypes'
 import {UnexpectedError, UnexpectedErrorReason} from '@/errors'
 import {isAda, optionalFields} from '@/helpers'
+import {addressToHex} from '@/ledger/address'
+import {orderTokenBundle} from '@/ledger/assets'
+import {hashDatum, TxAux} from '@/ledger/transaction'
+import {toType} from '@/ledger/transaction/cbor/cborTypes'
+import * as cab from '@/types'
+import {AddressWithMeta} from '@/types/wallet'
 
 export function normalizeValue<T extends BigNumber>(
   value: cab.Value,
@@ -42,7 +43,8 @@ export function normalizeValue<T extends BigNumber>(
 
 export function normalizeTxValue<T>(
   tokenBundle: cab.TokenBundle,
-  coins?: cab.Lovelace
+  coins?: cab.Lovelace,
+  allowNegative = false
 ): Map<api.PolicyId, Map<api.AssetName, T>> {
   const value = new Map<api.PolicyId, Map<api.AssetName, T>>()
 
@@ -56,7 +58,7 @@ export function normalizeTxValue<T>(
     const assetToQuantityMap = new Map<api.AssetName, T>()
 
     assets.forEach(({assetName, quantity}) => {
-      if (quantity.gt(0)) {
+      if (allowNegative ? !quantity.isZero() : quantity.gt(0)) {
         assetToQuantityMap.set(assetName as api.AssetName, quantity as unknown as T)
       }
     })
@@ -74,26 +76,75 @@ export function normalizeTxInput(txInput: Pick<cab.TxInput, 'txHash' | 'outputIn
   }
 }
 
-function normalizeTxOutput(txOutput: Omit<cab.TxOutput, 'isChange'>): api.TxOutput {
-  const {address, coins, dataHash, tokenBundle} = txOutput
+function normalizeScriptLanguage(scriptLanguage: cab.Language): api.TxScriptType {
+  switch (scriptLanguage) {
+    case cab.Language.PLUTUSV1:
+      return api.TxScriptType.PLUTUS_V1
+    case cab.Language.PLUTUSV2:
+      return api.TxScriptType.PLUTUS_V2
+    default:
+      throw new Error(`Unknown script language: ${scriptLanguage}`)
+  }
+}
 
+function normalizeTxScript(txScript: cab.TxScript): api.TxScriptRef {
   return {
-    address: addressToHex(address) as api.Address,
-    value: normalizeTxValue(tokenBundle, coins),
-    datumHash: dataHash !== undefined ? (dataHash as api.Hash32) : undefined,
+    script: txScript.bytes.toString('hex') as api.PlutusScript,
+    type: normalizeScriptLanguage(txScript.language),
+  }
+}
+
+function normalizeTxOutput(txOutput: cab.TxOutput): api.TxOutput {
+  const {address, coins, tokenBundle} = txOutput
+
+  if (txOutput.type === cab.TxOutputType.LEGACY) {
+    return {
+      type: api.TxOutputType.LEGACY,
+      address: addressToHex(address) as api.Address,
+      value: normalizeTxValue(tokenBundle, coins),
+      datumHash: txOutput.datumHash !== undefined ? (txOutput.datumHash as api.Hash32) : undefined,
+    }
+  } else {
+    return {
+      type: api.TxOutputType.POST_ALONZO,
+      address: addressToHex(address) as api.Address,
+      value: normalizeTxValue(tokenBundle, coins),
+      datumOption: txOutput.datumOption as api.TxOutputPostAlonzo['datumOption'],
+      scriptRef: txOutput.scriptRef ? normalizeTxScript(txOutput.scriptRef) : undefined,
+    }
   }
 }
 
 export function normalizeUtxo(utxo: cab.UTxO): api.TxUnspentOutput {
+  const useNewTxFormat = utxo.inlineDatum || utxo.inlineDatum
+  const datumHash = utxo.datumHash || (utxo.datum ? (hashDatum(utxo.datum) as api.Hash32) : undefined)
   return {
     txInput: normalizeTxInput(utxo),
     txOutput: normalizeTxOutput({
+      ...(useNewTxFormat
+        ? {
+            type: cab.TxOutputType.POST_ALONZO,
+            datumOption:
+              utxo.datum && utxo.inlineDatum
+                ? {
+                    type: cab.TxDatumOptionType.INLINED_DATUM,
+                    datum: utxo.datum,
+                  }
+                : datumHash
+                ? {
+                    type: cab.TxDatumOptionType.HASH,
+                    hash: datumHash,
+                  }
+                : undefined,
+          }
+        : {
+            type: cab.TxOutputType.LEGACY,
+            datumHash,
+          }),
+      isChange: false,
       address: utxo.address,
       coins: utxo.coins,
       tokenBundle: utxo.tokenBundle,
-      ...optionalFields({
-        dataHash: utxo.datumHash || (utxo.datum ? (hashDatum(utxo.datum) as api.Hash32) : undefined),
-      }),
     }),
   }
 }
@@ -138,6 +189,12 @@ export function normalizeDatum(datum: cab.TxDatum): api.PlutusDatum {
           data: constrDatum.data.map(normalizeDatum),
           __typeConstr: true,
         }
+      } else if ((datum as cab.TxSimpleDatum).__simpleDatum) {
+        const simpleDatum = datum as cab.TxSimpleDatum
+        return {
+          data: normalizeDatum(simpleDatum),
+          __simpleDatum: true,
+        }
       } else {
         throw new UnexpectedError(UnexpectedErrorReason.UnsupportedOperationError)
       }
@@ -170,8 +227,19 @@ export function normalizeWitnessSet(witnessSet: cab.TxWitnessSet, txAux: TxAux):
       })
     ),
 
-    plutusScripts: witnessSet.plutusScripts?.map(
-      (script) => script.bytes.toString('hex') as api.PlutusScript
+    plutusV1Scripts: compact(
+      witnessSet.plutusScripts
+        ?.filter((script) => script.language === cab.Language.PLUTUSV1)
+        .map((script) =>
+          script.isReferenceScript ? undefined : (script.bytes.toString('hex') as api.PlutusScript)
+        )
+    ),
+    plutusV2Scripts: compact(
+      witnessSet.plutusScripts
+        ?.filter((script) => script.language === cab.Language.PLUTUSV2)
+        .map((script) =>
+          script.isReferenceScript ? undefined : (script.bytes.toString('hex') as api.PlutusScript)
+        )
     ),
 
     plutusDatums: witnessSet.plutusDatums?.map((datum) => normalizeDatum(datum)),
@@ -223,6 +291,9 @@ export function normalizeTx(txAux: TxAux, witnessSet: cab.TxWitnessSet): api.Tra
   return {
     body: {
       inputs: new Set(sortBy(txAux.inputs.map(normalizeTxInput), ['txHash', 'index'])),
+      referenceInputs: new Set(
+        sortBy(txAux.referenceInputs?.map(normalizeTxInput), ['txHash', 'index'])
+      ),
       outputs: txAux.outputs.map(normalizeTxOutput),
       fee: txAux.fee as unknown as api.Coin,
       ...optionalFields({
@@ -233,7 +304,7 @@ export function normalizeTx(txAux: TxAux, witnessSet: cab.TxWitnessSet): api.Tra
         certificates: txAux.certificates ? normalizeCertificates(txAux.certificates) : undefined,
         withdrawals: txAux.withdrawals ? normalizeWithdrawals(txAux.withdrawals) : undefined,
         auxiliaryDataHash: txAux.auxiliaryDataHash ? (txAux.auxiliaryDataHash as api.Hash32) : undefined,
-        mint: txAux.mint ? normalizeTxValue(txAux.mint) : undefined,
+        mint: txAux.mint ? normalizeTxValue(txAux.mint, undefined, true) : undefined,
         scriptDataHash: txAux.scriptIntegrity as api.Hash32,
         collateralInputs: txAux.collateralInputs
           ? new Set(txAux.collateralInputs.map(normalizeTxInput))

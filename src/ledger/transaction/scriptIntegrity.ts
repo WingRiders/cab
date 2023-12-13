@@ -1,11 +1,14 @@
 import {encode} from 'borc'
 import {blake2b} from 'cardano-crypto.js'
-import {TxRedeemer, TxDatum, TxInput, Language} from '@/types/transaction'
+import {uniq} from 'lodash'
+
+import {Hash32String, TokenBundle} from '@/types/base'
+import {ProtocolParameters} from '@/types/protocolParameters'
+import {Language, TxDatum, TxInput, TxRedeemer} from '@/types/transaction'
+import {TxPlan} from '@/types/txPlan'
+
 import {cborizeTxDatums, cborizeTxRedeemers} from './cbor/cborize'
 import {encodeCostModels} from './costModel'
-import {TokenBundle, Hash32String} from '@/types/base'
-import {ProtocolParameters} from '@/types/protocolParameters'
-import {TxPlan} from '@/types/txPlan'
 
 export const hashScriptIntegrity = ({
   redeemers,
@@ -22,14 +25,18 @@ export const hashScriptIntegrity = ({
   languages?: Language[]
   mint?: TokenBundle
 }): Buffer => {
+  const encodedRedeemers = redeemers
+    ? encode(cborizeTxRedeemers(redeemers, inputs, mint))
+    : // if there are no redeemers, still add an empty array
+      encode(Buffer.from([]))
+  const encodedDatums =
+    datums && datums.length > 0
+      ? encode(cborizeTxDatums(datums))
+      : // if there are no datums, it's skipped
+        Buffer.from([])
+  const encodedCostModels = encodeCostModels(languages, costModels)
   // match hashScriptIntegrity from Cardano.Ledger.Alonzo.Tx
-  const buffer = Buffer.concat([
-    // if there are no redeemers, still add an empty array
-    redeemers ? encode(cborizeTxRedeemers(redeemers, inputs, mint)) : encode(Buffer.from([])),
-    // if there are no dats, it's skipped
-    datums && datums.length > 0 ? encode(cborizeTxDatums(datums)) : Buffer.from([]),
-    encodeCostModels(languages, costModels),
-  ])
+  const buffer = Buffer.concat([encodedRedeemers, encodedDatums, encodedCostModels])
 
   return blake2b(buffer, 32)
 }
@@ -39,8 +46,7 @@ export function computeScriptIntegrity(txPlan: TxPlan): Hash32String | undefined
     return hashScriptIntegrity({
       redeemers: txPlan.redeemers ?? [],
       datums: txPlan.datums ?? [],
-      // assume PlutusV1 scripts only for now
-      languages: txPlan.scripts?.length ? [Language.PLUTUSV1] : [],
+      languages: uniq((txPlan.scripts ?? []).map(({language}) => language)),
       inputs: txPlan.inputs,
       mint: txPlan.mint || [],
       costModels: txPlan.protocolParameters.costModels,

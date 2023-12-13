@@ -1,13 +1,19 @@
-import {CabInternalError, CabInternalErrorReason} from '@/errors'
+import {Account} from '@/account/Account'
 import {MAX_ACCOUNT_INDEX} from '@/constants'
 import {ICryptoProvider} from '@/crypto/ICryptoProvider'
+import {CabInternalError, CabInternalErrorReason} from '@/errors'
+import {IBlockchainExplorer} from '@/types/blockchainExplorer'
 import {CryptoProviderFeature} from '@/types/wallet'
-import {Account} from '@/account/Account'
-import {ILedgerStateDataProvider, IOnChainDataProvider} from '@/dataProviders'
 
 type AccountManagerConfig = {
   shouldExportPubKeyBulk: boolean
   gapLimit: number
+}
+
+type AccountManagerParams = {
+  config: AccountManagerConfig
+  cryptoProvider: ICryptoProvider
+  blockchainExplorer: IBlockchainExplorer
 }
 
 type AccountIndex = number
@@ -16,27 +22,14 @@ export class AccountManager {
   accounts: Record<AccountIndex, Account>
   config: AccountManagerConfig
   cryptoProvider: ICryptoProvider
+  blockchainExplorer: IBlockchainExplorer
   maxAccountIndex: number = MAX_ACCOUNT_INDEX
 
-  private onChainDataProvider: IOnChainDataProvider
-  private ledgerStateDataProvider: ILedgerStateDataProvider
-
-  constructor({
-    onChainDataProvider,
-    ledgerStateDataProvider,
-    cryptoProvider,
-    config,
-  }: {
-    onChainDataProvider: IOnChainDataProvider
-    ledgerStateDataProvider: ILedgerStateDataProvider
-    cryptoProvider: ICryptoProvider
-    config: AccountManagerConfig
-  }) {
+  constructor({config, cryptoProvider, blockchainExplorer}: AccountManagerParams) {
     this.accounts = {}
     this.config = config
     this.cryptoProvider = cryptoProvider
-    this.onChainDataProvider = onChainDataProvider
-    this.ledgerStateDataProvider = ledgerStateDataProvider
+    this.blockchainExplorer = blockchainExplorer
   }
 
   private assertAccountExists(accountIndex: number): asserts this is typeof this {
@@ -65,8 +58,7 @@ export class AccountManager {
     return new Account({
       gapLimit: this.config.gapLimit,
       cryptoProvider: this.cryptoProvider,
-      onChainDataProvider: this.onChainDataProvider,
-      ledgerStateDataProvider: this.ledgerStateDataProvider,
+      blockchainExplorer: this.blockchainExplorer,
       accountIndex,
     })
   }

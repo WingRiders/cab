@@ -1,9 +1,10 @@
-import {BIP32Path, HexString} from '@/types'
 import {ICryptoProvider} from '@/crypto/ICryptoProvider'
-import {AddressProvider} from '@/types/wallet'
+import {BIP32Path, HexString} from '@/types'
 import {XPubKey} from '@/types/address'
+import {AddressProvider} from '@/types/wallet'
+
 import {HARDENED_THRESHOLD} from './addressConstants'
-import {stakingAddressFromXpub, baseAddressFromXpub, enterpriseAddressFromXpub} from './addressHelpers'
+import {baseAddressFromXpub, enterpriseAddressFromXpub, stakingAddressFromXpub} from './addressHelpers'
 
 const shelleyPath = (account: number, isChange: boolean, addrIdx: number): BIP32Path => {
   return [

@@ -1,5 +1,7 @@
-import {Address as BechAddress, NetworkId} from '@/types'
 import {BaseAddressTypes, packBaseAddress, packEnterpriseAddress} from 'cardano-crypto.js'
+
+import {Address as BechAddress, NetworkId} from '@/types'
+
 import {encodeAddress} from '../address'
 import {
   Address,

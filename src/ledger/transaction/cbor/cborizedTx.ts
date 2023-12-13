@@ -2,31 +2,37 @@
  * TODO break this up
  * TxAux should go somewhere else
  */
-import {Lovelace, HexString, TokenBundle, BigNumber, Hash32String} from '@/types/base'
+import {Tagged} from 'borc'
+
 import {AddrKeyHash} from '@/types/address'
+import {BigNumber, Hash32String, HexString, Lovelace, TokenBundle} from '@/types/base'
+import {NetworkId} from '@/types/network'
+import {TxRelayType} from '@/types/stakepool'
 import {
   TxCertificate,
-  TxInput,
-  TxOutput,
-  TxWithdrawal,
-  TxScript,
   TxDatum,
+  TxInput,
+  TxInputRef,
+  TxMetadata,
+  TxOutput,
   TxRedeemer,
   TxRedeemerTag,
+  TxScriptSource,
+  TxWithdrawal,
   TxWitnessSet,
-  TxMetadata,
 } from '@/types/transaction'
-import {TxRelayType} from '@/types/stakepool'
-import {NetworkId} from '@/types/network'
-import {CborizedTxDatum} from './CborizedTxDatum'
-import {Tagged} from 'borc'
-import {CborInt64} from './CborInt64'
 import {CatalystVotingRegistrationData} from '@/types/txPlan'
+
+import {CborInt64} from './CborInt64'
+import {CborizedTxDatum} from './CborizedTxDatum'
+import {CborizedTxInlineDatum} from './CborizedTxInlineDatum'
+import {CborizedTxScriptRef} from './CborizedTxScriptRef'
 
 type encodeCBORFn = any // TODO: type
 
 export type TxAuxData = {
   inputs: TxInput[]
+  referenceInputs?: TxInputRef[]
   collateralInputs?: TxInput[]
   outputs: TxOutput[]
   fee: Lovelace
@@ -34,7 +40,7 @@ export type TxAuxData = {
   ttl: number | BigNumber | null
   certificates: TxCertificate[]
   withdrawals: TxWithdrawal[]
-  scripts?: TxScript[]
+  scripts?: TxScriptSource[]
   datums?: TxDatum[]
   redeemers?: TxRedeemer[]
   validityIntervalStart: number | BigNumber | null
@@ -83,14 +89,16 @@ export const enum TxBodyKey {
   COLLATERAL_INPUTS = 13,
   REQUIRED_SIGNERS = 14,
   NETWORK_ID = 15,
+  REFERENCE_INPUTS = 18,
 }
 
 export const enum TxWitnessKey {
   SHELLEY = 0,
   BYRON = 2,
-  SCRIPTS = 3,
+  SCRIPTS_V1 = 3,
   DATA = 4,
   REDEEMERS = 5,
+  SCRIPTS_V2 = 6,
 }
 
 export const enum TxCertificateKey { // TODO: type would be a better name
@@ -111,7 +119,18 @@ export type CborizedTxTokenBundle = Map<Buffer, Map<Buffer, number | CborInt64>>
 
 export type CborizedTxValue = CborInt64 | [CborInt64, CborizedTxTokenBundle]
 
-export type CborizedTxOutput = [Buffer, CborizedTxValue] | [Buffer, CborizedTxValue, Buffer]
+export const enum TxOutputKey {
+  OUTPUT_KEY_ADDRESS = 0,
+  OUTPUT_KEY_VALUE = 1,
+  OUTPUT_KEY_DATUM_OPTION = 2,
+  OUTPUT_KEY_SCRIPT_REF = 3,
+}
+
+export type CborizedDatumOption = [0, Buffer] | [1, CborizedTxInlineDatum]
+export type CborizedTxOutput =
+  | [Buffer, CborizedTxValue]
+  | [Buffer, CborizedTxValue, Buffer]
+  | Map<TxOutputKey, Buffer | CborizedTxValue | CborizedDatumOption | CborizedTxScriptRef>
 
 export type CborizedPubKeyHash = Buffer
 
@@ -156,7 +175,7 @@ export type CborizedTxStakepoolRegistrationCert = [
   Buffer,
   CborInt64,
   CborInt64,
-  Tagged /*{
+  Tagged<Array<number>> /*{
     value: {
       0: number
       1: number

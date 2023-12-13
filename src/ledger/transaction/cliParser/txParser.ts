@@ -1,8 +1,9 @@
-import {TxCertificateType, BigNumber} from '@/types'
+import {BigNumber, TxCertificateType} from '@/types'
+
 import {Errors} from './errors'
 import {
+  isArrayOfType,
   isDelegationCert,
-  isUint64,
   isStakepoolRegistrationCert,
   isStakingKeyDeregistrationCert,
   isTxInput,
@@ -11,31 +12,31 @@ import {
   isTxSingleHostIPRelay,
   isTxSingleHostNameRelay,
   isTxStakingKeyRegistrationCert,
+  isUint64,
   isWithdrawalsMap,
-  isArrayOfType,
 } from './guards'
 import {
-  _Input,
-  _Output,
-  _DelegationCert,
-  _StakingKeyRegistrationCert,
-  _StakingKeyDeregistrationCert,
-  _StakepoolRegistrationCert,
-  _Withdrawal,
-  _UnsignedTxDecoded,
-  _UnsignedTxParsed,
+  _Asset,
   _Certificate,
-  TxRelayTypes,
+  _DelegationCert,
+  _Input,
+  _MultiAsset,
+  _MultiHostNameRelay,
+  _Output,
   _PoolRelay,
   _SingleHostIPRelay,
   _SingleHostNameRelay,
-  _MultiHostNameRelay,
+  _StakepoolRegistrationCert,
+  _StakingKeyDeregistrationCert,
+  _StakingKeyRegistrationCert,
+  _UnsignedTxDecoded,
+  _UnsignedTxParsed,
+  _Withdrawal,
+  Lovelace,
+  TxBodyKeys,
   TxInput,
   TxOutput,
-  Lovelace,
-  _MultiAsset,
-  _Asset,
-  TxBodyKeys,
+  TxRelayTypes,
 } from './types'
 
 const parseTxInputs = (txInputs: any[]): _Input[] => {

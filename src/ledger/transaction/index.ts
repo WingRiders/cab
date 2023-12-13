@@ -1,45 +1,36 @@
-export {cborizeTxWitnesses, cborizeTxDatums, cborizeTxRedeemers} from './cbor/cborize'
-
+export {sortUtxos} from './arrangeUtxos'
+export {CborIndefiniteLengthArray} from './cbor/CborIndefiniteLengthArray'
+export {CborInt64} from './cbor/CborInt64'
+export {cborizeTxDatums, cborizeTxRedeemers, cborizeTxWitnesses} from './cbor/cborize'
+export type {
+  CborizedCliWitness,
+  CborizedTxStructured,
+  CborizedTxWitnesses,
+  TxAux,
+  TxSigned,
+} from './cbor/cborizedTx'
+export {TxBodyKey, TxWitnessKey} from './cbor/cborizedTx'
+export {CborizedTxDatum} from './cbor/CborizedTxDatum'
+export {SORT_ORDER as CBOR_SORT_ORDER} from './cbor/cborTypes'
+export {encodeTxScript} from './cbor/utils'
+export {estimateTxSize} from './estimateSize'
+export {splitMetadatumString} from './metadata/encodeMetadata'
+export {hashScriptIntegrity} from './scriptIntegrity'
+export {
+  cborizeCliWitness,
+  ShelleyTransactionStructured,
+  ShelleyTxAux,
+  signedTransaction,
+} from './shelleyTransaction'
 export {getTxPlan, prepareTxAux, prepareTxWitnessSet} from './transactionPlanner'
 export {
   computeMinUTxOLovelaceAmount,
   computeRequiredTxFee,
   computeValueSize,
+  createEmptyChangePlaceholder,
   createTokenChangeOutputs,
   getDatumFingerprint,
   hashDatum,
-  txFeeFunction,
-  createEmptyChangePlaceholder,
   hashSerialized,
+  txFeeFunction,
 } from './utils'
-export {
-  TxBodyKey,
-  TxWitnessKey,
-  CborizedCliWitness,
-  TxAux,
-  TxSigned,
-  CborizedTxStructured,
-  CborizedTxWitnesses,
-} from './cbor/cborizedTx'
-export {
-  ShelleyTxAux,
-  cborizeCliWitness,
-  signedTransaction,
-  ShelleyTransactionStructured,
-} from './shelleyTransaction'
-
-export {estimateTxSize} from './estimateSize'
-export {CborIndefiniteLengthArray} from './cbor/CborIndefiniteLengthArray'
-export {hashScriptIntegrity} from './scriptIntegrity'
-export {CborizedTxDatum} from './cbor/CborizedTxDatum'
-export {CborInt64} from './cbor/CborInt64'
-export {SORT_ORDER as CBOR_SORT_ORDER} from './cbor/cborTypes'
-export {
-  parseCliUnsignedTx,
-  parsePoolRegTxFile,
-  unsignedPoolTxToTxPlan,
-  transformSignatureToCliFormat,
-} from './stakepoolRegistrationUtils'
-export {sortUtxos} from './arrangeUtxos'
-
-export {splitMetadatumString} from './metadata/encodeMetadata'

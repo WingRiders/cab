@@ -1,4 +1,5 @@
 import {BigNumber} from 'bignumber.js'
+
 import {HexString, NetworkId, Paginate, SignTxSummary} from './common'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -40,11 +41,58 @@ export type TxInput = {
   index: UInt
 }
 
-export type TxOutput = {
+export enum TxOutputType {
+  LEGACY,
+  POST_ALONZO,
+}
+
+export enum TxOutputDatumType {
+  HASH = 0,
+  INLINED_DATUM = 1,
+}
+
+export enum TxScriptType {
+  NATIVE = 0,
+  PLUTUS_V1 = 1,
+  PLUTUS_V2 = 2,
+}
+
+export type TxOutputLegacy = {
+  // encoded as array
+  type: TxOutputType.LEGACY
   address: Address
   value: Value
   datumHash?: Hash32
 }
+
+export type TxScriptRef =
+  | {
+      type: TxScriptType.NATIVE
+      script: NativeScript
+    }
+  | {
+      type: TxScriptType.PLUTUS_V1 | TxScriptType.PLUTUS_V2
+      script: PlutusScript
+    }
+
+export type TxOutputPostAlonzo = {
+  //encoded as map with keys
+  type: TxOutputType.POST_ALONZO
+  address: Address
+  value: Value
+  datumOption?:
+    | {
+        type: TxOutputDatumType.HASH
+        datumHash: Hash32
+      }
+    | {
+        type: TxOutputDatumType.INLINED_DATUM
+        datum: PlutusDatum
+      }
+  scriptRef?: TxScriptRef
+}
+
+export type TxOutput = TxOutputLegacy | TxOutputPostAlonzo
 
 export type TxUnspentOutput = {
   txInput: TxInput // when used as input
@@ -62,6 +110,7 @@ export type Update = [ProtocolParamUpdate, Epoch]
 
 export type TxBody = {
   inputs: Set<TxInput>
+  referenceInputs?: Set<TxInput>
   outputs: TxOutput[]
   fee: Coin
   ttl?: UInt
@@ -73,6 +122,8 @@ export type TxBody = {
   mint?: MintValue
   scriptDataHash?: Hash32
   collateralInputs?: Set<TxInput>
+  collateralOutput?: TxOutput
+  totalCollateral?: Coin
   requiredSigners?: Set<AddressKeyHash>
   networkId?: NetworkId
 }
@@ -117,6 +168,11 @@ export interface PlutusDatumConstr {
   __typeConstr: true
 }
 
+export interface PlutusSimpleDatum {
+  data: PlutusDatum
+  __simpleDatum: true
+}
+
 // ⚠️ the conversion from cbor > PlutusDatum is lossy
 // plutus uses bytes even for strings
 export type PlutusDatum =
@@ -127,6 +183,7 @@ export type PlutusDatum =
   | Map<PlutusDatum, PlutusDatum>
   | PlutusDatum[]
   | PlutusDatumConstr
+  | PlutusSimpleDatum
 
 export enum RedeemerTag {
   Spend = 0,
@@ -151,9 +208,10 @@ export type TxWitnessSet = {
   vKeyWitnesses?: VKeyWitness[]
   nativeScripts?: NativeScript[]
   bootstrapWitness?: BootstrapWitness[]
-  plutusScripts?: PlutusScript[]
+  plutusV1Scripts?: PlutusScript[]
   plutusDatums?: PlutusDatum[]
   redeemers?: Redeemer[]
+  plutusV2Scripts?: PlutusScript[]
 }
 
 type Metadata =

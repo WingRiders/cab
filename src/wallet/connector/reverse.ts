@@ -1,15 +1,15 @@
-import * as api from '@/dappConnector'
-import * as cab from '@/types'
-
 import {BigNumber} from 'bignumber.js'
-import {ShelleyTxAux, TxAux} from '@/ledger/transaction'
 import {sortBy} from 'lodash'
-import {valueAdd, valueToLovelace, valueToTokenBundle} from '@/ledger/assets'
-import {encodeAddress} from '@/ledger/address'
-import {toType} from '@/ledger/transaction/cbor/cborTypes'
+
+import * as api from '@/dappConnector'
 import {UnexpectedError, UnexpectedErrorReason} from '@/errors'
-import {TxMintRedeemer, TxRedeemer, TxSpendRedeemer} from '@/types/transaction'
 import {optionalFields} from '@/helpers'
+import {encodeAddress} from '@/ledger/address'
+import {valueAdd, valueToLovelace, valueToTokenBundle} from '@/ledger/assets'
+import {ShelleyTxAux, TxAux} from '@/ledger/transaction'
+import {toType} from '@/ledger/transaction/cbor/cborTypes'
+import * as cab from '@/types'
+import {TxMintRedeemer, TxRedeemer, TxSpendRedeemer} from '@/types/transaction'
 
 export function reverseAddress(address: api.Address): cab.Address {
   return encodeAddress(Buffer.from(address, 'hex'))
@@ -32,6 +32,13 @@ export function reverseInputs(inputs: api.TxInput[], utxos: cab.UTxO[]): cab.TxI
       }
     }
   })
+}
+
+export function reverseReferenceInputs(inputs: api.TxInput[]): cab.TxInputRef[] {
+  return inputs.map((input) => ({
+    outputIndex: input.index.toNumber(),
+    txHash: input.txHash as cab.HexString,
+  }))
 }
 
 /**
@@ -58,14 +65,31 @@ export function reverseValue(valueMap: api.Value | api.MintValue): cab.Value {
 }
 
 function reverseOutputs(outputs: api.TxOutput[]): cab.TxOutput[] {
-  return outputs.map((output) => {
+  return outputs.map((output): cab.TxOutput => {
     const value = reverseValue(output.value)
-    return {
-      address: reverseAddress(output.address),
-      coins: valueToLovelace(value),
-      isChange: false,
-      tokenBundle: valueToTokenBundle(value),
-      dataHash: output.datumHash,
+    if (output.type === api.TxOutputType.LEGACY) {
+      return {
+        type: cab.TxOutputType.LEGACY,
+        address: reverseAddress(output.address),
+        coins: valueToLovelace(value),
+        isChange: false,
+        tokenBundle: valueToTokenBundle(value),
+        datumHash: output.datumHash,
+      }
+    } else {
+      return {
+        type: cab.TxOutputType.POST_ALONZO,
+        address: reverseAddress(output.address),
+        coins: valueToLovelace(value),
+        isChange: false,
+        tokenBundle: valueToTokenBundle(value),
+        ...(output.scriptRef && output.scriptRef.type !== api.TxScriptType.NATIVE
+          ? {
+              scriptRef: reverseScriptRef(output.scriptRef),
+            }
+          : undefined),
+        datumOption: reverseDatumOption(output.datumOption),
+      }
     }
   })
 }
@@ -81,10 +105,31 @@ export function reverseUtxo(
     coins: valueToLovelace(value),
     tokenBundle: valueToTokenBundle(value),
     txHash: utxo.txInput.txHash,
-    ...optionalFields({
-      datumHash: utxo.txOutput.datumHash,
-      datum: utxo.txOutput.datumHash !== undefined ? datumMap?.get(utxo.txOutput.datumHash) : undefined,
-    }),
+    ...optionalFields(
+      utxo.txOutput.type === api.TxOutputType.POST_ALONZO
+        ? {
+            inlineDatum: utxo.txOutput.datumOption?.type === api.TxOutputDatumType.INLINED_DATUM,
+            inlineScript: utxo.txOutput.scriptRef
+              ? reverseScriptRef(utxo.txOutput.scriptRef)
+              : undefined,
+            ...(utxo.txOutput.datumOption?.type === api.TxOutputDatumType.INLINED_DATUM
+              ? {
+                  datum: reverseDatum(utxo.txOutput.datumOption.datum),
+                }
+              : {
+                  datumHash: utxo.txOutput.datumOption?.datumHash,
+                  datum:
+                    utxo.txOutput.datumOption?.datumHash !== undefined
+                      ? datumMap?.get(utxo.txOutput.datumOption.datumHash)
+                      : undefined,
+                }),
+          }
+        : {
+            datumHash: utxo.txOutput.datumHash,
+            datum:
+              utxo.txOutput.datumHash !== undefined ? datumMap?.get(utxo.txOutput.datumHash) : undefined,
+          }
+    ),
   }
 }
 
@@ -93,6 +138,24 @@ export function reverseUtxos(
   datumMap?: Map<cab.HexString, cab.TxDatum>
 ): cab.UTxO[] {
   return utxos?.map((utxo) => reverseUtxo(utxo, datumMap)) ?? []
+}
+
+export function reverseDatumOption(
+  datumOption: api.TxOutputPostAlonzo['datumOption']
+): cab.TxDatumOption | undefined {
+  if (!datumOption) {
+    return undefined
+  }
+
+  return datumOption.type === api.TxOutputDatumType.HASH
+    ? {
+        type: cab.TxDatumOptionType.HASH,
+        hash: datumOption.datumHash,
+      }
+    : {
+        type: cab.TxDatumOptionType.INLINED_DATUM,
+        datum: reverseDatum(datumOption.datum),
+      }
 }
 
 export function reverseDatum(datum: api.PlutusDatum): cab.TxDatum {
@@ -124,6 +187,12 @@ export function reverseDatum(datum: api.PlutusDatum): cab.TxDatum {
           i: constrDatum.i,
           data: constrDatum.data.map(reverseDatum),
           __typeConstr: true,
+        }
+      } else if ((datum as api.PlutusSimpleDatum).__simpleDatum) {
+        const simpleDatum = datum as api.PlutusSimpleDatum
+        return {
+          data: reverseDatum(simpleDatum.data),
+          __simpleDatum: true,
         }
       } else {
         throw new UnexpectedError(UnexpectedErrorReason.UnsupportedOperationError)
@@ -190,13 +259,24 @@ function reverseRedeemers(
   })
 }
 
-function reverseScript(script: api.PlutusScript): cab.TxScript {
+function reverseScriptRef(scriptRef: api.TxScriptRef): cab.TxScript {
+  if (scriptRef.type === api.TxScriptType.NATIVE) {
+    throw new UnexpectedError(UnexpectedErrorReason.UnsupportedOperationError)
+  }
+  return reverseScript(
+    scriptRef.script,
+    scriptRef.type === api.TxScriptType.PLUTUS_V1 ? cab.Language.PLUTUSV1 : cab.Language.PLUTUSV2
+  )
+}
+
+function reverseScript(script: api.PlutusScript, language: cab.Language): cab.TxScript {
   return {
+    language,
     bytes: Buffer.from(script, 'hex'),
   }
 }
 
-function reverseScripts(scripts: api.PlutusScript[]): cab.TxScript[] {
+function reverseScripts(scripts: api.PlutusScript[], language: cab.Language): cab.TxScript[] {
   return scripts.map(reverseScript)
 }
 
@@ -218,6 +298,9 @@ export function reverseTx(tx: api.Transaction, utxos: cab.UTxO[]): TxAux {
     : undefined
   return new ShelleyTxAux({
     inputs,
+    referenceInputs: tx.body.referenceInputs
+      ? reverseReferenceInputs(Array.from(tx.body.referenceInputs))
+      : undefined,
     outputs: reverseOutputs(tx.body.outputs),
     fee: new cab.BigNumber(tx.body.fee) as cab.Lovelace,
     ttl: tx.body.ttl?.toNumber() || null,
@@ -236,7 +319,12 @@ export function reverseTx(tx: api.Transaction, utxos: cab.UTxO[]): TxAux {
       redeemers: tx.witnessSet.redeemers
         ? reverseRedeemers(tx.witnessSet.redeemers, inputs, tx.body.mint)
         : undefined,
-      scripts: tx.witnessSet.plutusScripts ? reverseScripts(tx.witnessSet.plutusScripts) : undefined,
+      scripts:
+        tx.witnessSet.plutusV1Scripts || tx.witnessSet.plutusV2Scripts
+          ? reverseScripts(tx.witnessSet.plutusV1Scripts || [], cab.Language.PLUTUSV1).concat(
+              reverseScripts(tx.witnessSet.plutusV2Scripts || [], cab.Language.PLUTUSV2)
+            )
+          : undefined,
       scriptIntegrity: tx.body.scriptDataHash,
       // TODO for now compatible as we are using simple metadata
       metadata: tx.auxiliaryData as unknown as cab.TxMetadata,

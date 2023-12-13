@@ -1,13 +1,11 @@
+export {derivationSchemes} from './derivationSchemes'
+export {CachedDeriveXpubFactory} from './helpers/CachedDeriveXpubFactory'
 export {
-  importWalletSecretDef,
   exportWalletSecretDef,
+  importWalletSecretDef,
   isWalletExportEncrypted,
 } from './helpers/keypassJson'
-export {CachedDeriveXpubFactory} from './helpers/CachedDeriveXpubFactory'
-export {mnemonicToWalletSecretDef} from './mnemonicToWalletSecretDef'
-export {validateMnemonic, generateMnemonic} from './mnemonic'
-
-export {derivationSchemes} from './derivationSchemes'
-
-export {ICryptoProvider} from './ICryptoProvider'
+export type {ICryptoProvider} from './ICryptoProvider'
 export {JsCryptoProvider} from './JsCryptoProvider'
+export {generateMnemonic, validateMnemonic} from './mnemonic'
+export {mnemonicToWalletSecretDef} from './mnemonicToWalletSecretDef'

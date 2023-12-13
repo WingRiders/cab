@@ -1,4 +1,5 @@
-import {throttle, chain} from 'lodash'
+import {chain, throttle} from 'lodash'
+
 import {Hashable, hashArgs} from './hashArgs'
 
 type CacheObject = Record<string, {timestamp: number; data: any; lastAccessed: number}>

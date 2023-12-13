@@ -1,6 +1,6 @@
 {
   "name": "@wingriders/cab",
-  "version": "1.5.0",
+  "version": "2.0.24",
   "description": "CAB is a library to help with development of Cardano apps for browser and Node.js",
   "repository": {
     "type": "git",
@@ -60,9 +60,8 @@
     "randombytes": "^2.1.0"
   },
   "devDependencies": {
-    "@cardano-ogmios/schema": "^5.5.5",
     "@types/json-bigint": "^1.0.1",
-    "@types/lodash": "^4.14.0",
+    "@types/lodash": "^4.14.176",
     "@types/mocha": "^10.0.0",
     "@types/randombytes": "^2.0.0",
     "@typescript-eslint/parser": "^5.9.1",

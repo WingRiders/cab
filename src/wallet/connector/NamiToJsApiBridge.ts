@@ -1,7 +1,8 @@
 import {APIErrorCode, CborAPI, TxUnspentOutput, UtxoFilterOptions} from '@/dappConnector'
+
+import {ApiError} from './ApiError'
 import {BridgeError} from './BridgeError'
 import {CborToJsApiBridge} from './CborToJsApiBridge'
-import {ApiError} from './ApiError'
 
 export class NamiToJsApiBridge extends CborToJsApiBridge {
   private errorState?: APIErrorCode.AccountChange

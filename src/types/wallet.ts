@@ -1,5 +1,5 @@
+import {BIP32Path, PubKeyHash, StakingHash, XPubKey} from './address'
 import {Address, Lovelace, TokenBundle} from './base'
-import {BIP32Path, XPubKey, PubKeyHash, StakingHash} from './address'
 import {StakePoolInfoExtended} from './stakepool'
 
 export enum CryptoProviderFeature {

@@ -1,10 +1,12 @@
-import {TokenBundle, Token} from '@/types/base'
-import {TxPlanArgs} from '@/types/txPlan'
-import {UTxO} from '@/types/transaction'
+import {partition, some} from 'lodash'
+
+import {isNonScriptUtxo} from '@/helpers'
+import {isRecommendedCollateral, MAX_COLLATERAL_COUNT} from '@/helpers/collaterals'
 import {addressToHex, isBase} from '@/ledger/address'
 import {aggregateTokenBundles} from '@/ledger/assets'
-import {partition, some} from 'lodash'
-import {isRecommendedCollateral, MAX_COLLATERAL_COUNT} from '@/helpers/collaterals'
+import {Token, TokenBundle} from '@/types/base'
+import {UTxO} from '@/types/transaction'
+import {TxPlanArgs} from '@/types/txPlan'
 
 export const sortUtxos = (utxos: UTxO[]) =>
   [...utxos].sort((a, b) =>
@@ -54,9 +56,10 @@ export function arrangeUtxos(utxos: UTxO[], txPlanArgs: TxPlanArgs): [UTxO[], UT
 
   // canonically sort, collateralUtxos are already sorted
   const sortedUtxos = sortUtxos(spendableUtxos)
+  const [nonScriptUtxos, scriptUtxos] = partition(sortedUtxos, isNonScriptUtxo)
 
-  const nonStakingUtxos = sortedUtxos.filter(({address}) => !isBase(addressToHex(address)))
-  const baseAddressUtxos = sortedUtxos.filter(({address}) => isBase(addressToHex(address)))
+  const nonStakingUtxos = nonScriptUtxos.filter(({address}) => !isBase(addressToHex(address)))
+  const baseAddressUtxos = nonScriptUtxos.filter(({address}) => isBase(addressToHex(address)))
   const adaOnlyUtxos = baseAddressUtxos.filter(({tokenBundle}) => tokenBundle.length === 0)
   // we want to discourage using UTxOs that could be used as collaterals
   // TODO the plan should include a flag if it wants to allow using collateral UTxOs
@@ -82,7 +85,7 @@ export function arrangeUtxos(utxos: UTxO[], txPlanArgs: TxPlanArgs): [UTxO[], UT
     tokenBundle.some((token) => includesToken(token))
   )
   return [
-    [...targetTokenUtxos, ...nonStakingUtxos, ...adaOnlyUtxos, ...nonTargetTokenUtxos],
+    [...targetTokenUtxos, ...nonStakingUtxos, ...adaOnlyUtxos, ...nonTargetTokenUtxos, ...scriptUtxos],
     collateralUtxos,
   ]
 }

@@ -1,31 +1,21 @@
 import * as cbor from 'borc'
+import {sortBy, uniq} from 'lodash'
+
 import {HexString} from '@/types/base'
 import {
+  Language,
   TxByronWitness,
   TxDatum,
-  TxWitnessSet,
-  TxShelleyWitness,
-  TxScript,
-  TxRedeemerTag,
-  TxRedeemer,
-  TxSpendRedeemer,
   TxMintRedeemer,
+  TxRedeemer,
+  TxRedeemerTag,
+  TxScript,
+  TxShelleyWitness,
+  TxSpendRedeemer,
+  TxWitnessSet,
 } from '@/types/transaction'
 
-import {
-  TxBodyKey,
-  CborizedTxWitnessByron,
-  CborizedTxWitnesses,
-  TxWitnessKey,
-  CborizedTxWitnessShelley,
-  TxAux,
-  CborizedTxStructured,
-  TxSigned,
-  CborizedCliWitness,
-  TxAuxData,
-  CborizedTxScript,
-  CborizedTxRedeemer,
-} from './cbor/cborizedTx'
+import {CborInt64} from './cbor/CborInt64'
 import {
   cborizeRequiredSigners,
   cborizeTxCertificates,
@@ -35,9 +25,21 @@ import {
   cborizeTxWithdrawals,
   cborizeTxWitnesses,
 } from './cbor/cborize'
-import {CborInt64} from './cbor/CborInt64'
+import {
+  CborizedCliWitness,
+  CborizedTxRedeemer,
+  CborizedTxScript,
+  CborizedTxStructured,
+  CborizedTxWitnessByron,
+  CborizedTxWitnesses,
+  CborizedTxWitnessShelley,
+  TxAux,
+  TxAuxData,
+  TxBodyKey,
+  TxSigned,
+  TxWitnessKey,
+} from './cbor/cborizedTx'
 import {CborizedTxDatum} from './cbor/CborizedTxDatum'
-import {sortBy, uniq} from 'lodash'
 import {hashSerialized} from './utils'
 
 // Makes all properties available in the class
@@ -54,6 +56,9 @@ export class ShelleyTxAux {
   public encodeCBOR(encoder: any) {
     const txBody = new Map<TxBodyKey, any>()
     txBody.set(TxBodyKey.INPUTS, cborizeTxInputs(this.inputs))
+    if (this.referenceInputs?.length) {
+      txBody.set(TxBodyKey.REFERENCE_INPUTS, cborizeTxInputs(this.referenceInputs))
+    }
     if (this.collateralInputs && this.collateralInputs?.length > 0) {
       txBody.set(TxBodyKey.COLLATERAL_INPUTS, cborizeTxInputs(this.collateralInputs))
     }
@@ -78,7 +83,7 @@ export class ShelleyTxAux {
       txBody.set(TxBodyKey.REQUIRED_SIGNERS, cborizeRequiredSigners(this.requiredSigners))
     }
     if (this.mint?.length) {
-      txBody.set(TxBodyKey.MINT, cborizeTxOutputTokenBundle(this.mint))
+      txBody.set(TxBodyKey.MINT, cborizeTxOutputTokenBundle(this.mint, true))
     }
     if (this.scriptIntegrity) {
       txBody.set(TxBodyKey.SCRIPT_DATA_HASH, Buffer.from(this.scriptIntegrity, 'hex'))
@@ -142,11 +147,24 @@ export function ShelleyTransactionStructured(
           addressAttributes: byronWitness[3],
         })
       ),
-      plutusScripts: txWitnesses.get(TxWitnessKey.SCRIPTS)?.map(
-        (script: CborizedTxScript): TxScript => ({
-          bytes: script,
-        })
-      ),
+      plutusScripts:
+        txWitnesses.has(TxWitnessKey.SCRIPTS_V1) || txWitnesses.has(TxWitnessKey.SCRIPTS_V2)
+          ? (
+              txWitnesses.get(TxWitnessKey.SCRIPTS_V1)?.map(
+                (script: CborizedTxScript): TxScript => ({
+                  language: Language.PLUTUSV1,
+                  bytes: script,
+                })
+              ) ?? []
+            ).concat(
+              ...(txWitnesses.get(TxWitnessKey.SCRIPTS_V2)?.map(
+                (script: CborizedTxScript): TxScript => ({
+                  language: Language.PLUTUSV2,
+                  bytes: script,
+                })
+              ) ?? [])
+            )
+          : undefined,
       plutusDatums: txWitnesses
         .get(TxWitnessKey.DATA)
         ?.map((datum: CborizedTxDatum): TxDatum => datum.data),

@@ -1,43 +1,20 @@
 /* eslint-disable no-use-before-define */
 /* eslint-disable camelcase */
-import {
-  sign as signMsg,
-  derivePrivate,
-  xpubToHdPassphrase,
-  base58,
-  getBootstrapAddressAttributes,
-  hasSpendingScript,
-  addressToBuffer,
-  hasStakingScript,
-} from 'cardano-crypto.js'
 import {encode} from 'borc'
+import {
+  addressToBuffer,
+  base58,
+  derivePrivate,
+  getBootstrapAddressAttributes,
+  hasStakingScript,
+  sign as signMsg,
+  xpubToHdPassphrase,
+} from 'cardano-crypto.js'
 import {chain, partition} from 'lodash'
-import {
-  Address,
-  BIP32Path,
-  HexString,
-  Network,
-  TxByronWitness,
-  TxShelleyWitness,
-  CryptoProviderFeature,
-  PubKeyHash,
-  TokenBundle,
-  TxWitnessSet,
-} from '@/types'
-import {TxRedeemer, TxInput, TxScript, TxDatum, TxMetadatumLabel} from '@/types/transaction'
+
 import {removeNullFields} from '@/helpers'
-
-import HdNode, {_HdNode} from './helpers/hdNode'
 import {
-  ShelleyTransactionStructured,
-  cborizeTxWitnesses,
-  ShelleyTxAux,
-  TxSigned,
-  TxAux,
-  CborizedTxStructured,
-} from '@/ledger/transaction'
-
-import {
+  hasSpendingScript,
   isShelleyFormat,
   isShelleyPath,
   spendingHashFromAddress,
@@ -45,21 +22,45 @@ import {
   xpub2ChainCode,
   xpub2pub,
 } from '@/ledger/address'
-import {CachedDeriveXpubFactory} from './helpers/CachedDeriveXpubFactory'
+import {
+  CborizedTxStructured,
+  cborizeTxWitnesses,
+  ShelleyTransactionStructured,
+  ShelleyTxAux,
+  TxAux,
+  TxSigned,
+} from '@/ledger/transaction'
+import {
+  encodeVotingRegistrationData,
+  encodeVotingSignature,
+} from '@/ledger/transaction/metadata/encodeMetadata'
+import {hashSerialized} from '@/ledger/transaction/utils'
+import {
+  Address,
+  BIP32Path,
+  CryptoProviderFeature,
+  HexString,
+  Network,
+  PubKeyHash,
+  TokenBundle,
+  TxByronWitness,
+  TxScriptSource,
+  TxShelleyWitness,
+  TxWitnessSet,
+} from '@/types'
+import {TxDatum, TxInput, TxMetadatumLabel, TxRedeemer} from '@/types/transaction'
+import {CatalystVotingRegistrationData} from '@/types/txPlan'
+import {AddressToPathMapper, DerivationScheme} from '@/types/wallet'
+
 import {
   CabInternalError,
   CabInternalErrorReason,
   UnexpectedError,
   UnexpectedErrorReason,
 } from '../errors'
-import {AddressToPathMapper, DerivationScheme} from '@/types/wallet'
+import {CachedDeriveXpubFactory} from './helpers/CachedDeriveXpubFactory'
+import HdNode, {_HdNode} from './helpers/hdNode'
 import {ICryptoProvider} from './ICryptoProvider'
-import {hashSerialized} from '@/ledger/transaction/utils'
-import {CatalystVotingRegistrationData} from '@/types/txPlan'
-import {
-  encodeVotingRegistrationData,
-  encodeVotingSignature,
-} from '@/ledger/transaction/metadata/encodeMetadata'
 
 type CryptoProviderConfig = {
   shouldExportPubKeyBulk: boolean
@@ -183,7 +184,7 @@ export class JsCryptoProvider implements ICryptoProvider {
     byronWitnesses: TxByronWitness[]
     inputs: TxInput[]
     mint?: TokenBundle
-    scripts?: TxScript[]
+    scripts?: TxScriptSource[]
     datums?: TxDatum[]
     redeemers?: TxRedeemer[]
   }> {
@@ -215,7 +216,7 @@ export class JsCryptoProvider implements ICryptoProvider {
     )
     const spendingKeyHashes = chain(shelleyInputs)
       .map((input) => input.address)
-      .filter((address) => !hasSpendingScript(addressToBuffer(address)))
+      .filter((address) => !hasSpendingScript(address))
       .map((address) => spendingHashFromAddress(address) as PubKeyHash)
       .value()
 

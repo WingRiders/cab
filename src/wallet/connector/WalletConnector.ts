@@ -1,4 +1,5 @@
 import {APIErrorCode, CborAPI, JsAPI, Wallet as WalletApi, WalletOptions} from '@/dappConnector'
+
 import {Wallet} from '..'
 import {ApiError} from './ApiError'
 import {JsApi} from './JsApi'

@@ -1,11 +1,13 @@
+import {pick} from 'lodash'
+
 import {Account} from '@/account'
 import * as api from '@/dappConnector'
 import {isRecommendedCollateral} from '@/helpers'
 import {aggregateTokenBundles} from '@/ledger/assets'
 import {sortUtxos} from '@/ledger/transaction'
 import * as cab from '@/types'
-import {pick} from 'lodash'
-import {Wallet} from '..'
+
+import {Wallet} from '../Wallet'
 import {ApiError} from './ApiError'
 import {
   normalizeAddress,

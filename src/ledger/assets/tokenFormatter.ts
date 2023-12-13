@@ -1,6 +1,7 @@
-import {AssetQuantity, TokenBundle} from '@/types/base'
-import {OrderedTokenBundle} from '@/types/asset'
 import {chain} from 'lodash'
+
+import {OrderedTokenBundle} from '@/types/asset'
+import {AssetQuantity, TokenBundle} from '@/types/base'
 
 // from adalite-backend
 

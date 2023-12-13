@@ -1,23 +1,25 @@
 import {encode} from 'borc'
-import {uniq, partition} from 'lodash'
-import {Lovelace, TokenBundle, Address, ZeroLovelace} from '@/types/base'
+import {addressToBuffer, hasSpendingScript} from 'cardano-crypto.js'
+import {partition, uniq} from 'lodash'
+
+import {MAX_INT32, MAX_INT64} from '@/constants'
+import {isShelleyFormat, isV1Address, spendingHashFromAddress} from '@/ledger/address/addressHelpers'
+import {AddrKeyHash} from '@/types/address'
+import {Address, Lovelace, TokenBundle, ZeroLovelace} from '@/types/base'
 import {
-  TxDatum,
-  TxRedeemer,
-  TxScript,
   TxCertificate,
+  TxDatum,
   TxInput,
+  TxInputRef,
   TxOutput,
+  TxRedeemer,
+  TxScriptSource,
   TxWithdrawal,
   UTxO,
 } from '@/types/transaction'
-import {isShelleyFormat, isV1Address, spendingHashFromAddress} from '@/ledger/address/addressHelpers'
-import {
-  CATALYST_SIGNATURE_BYTE_LENGTH,
-  INTEGRITY_HASH_BYTE_LENGTH,
-  METADATA_HASH_BYTE_LENGTH,
-  TX_WITNESS_SIZES,
-} from './txConstants'
+import {CatalystVotingSignature, TxPlanMetadata} from '@/types/txPlan'
+
+import {CborInt64} from './cbor/CborInt64'
 import {
   cborizeRequiredSigners,
   cborizeTxCertificates,
@@ -29,12 +31,13 @@ import {
   cborizeTxScripts,
   cborizeTxWithdrawals,
 } from './cbor/cborize'
-import {addressToBuffer, hasSpendingScript} from 'cardano-crypto.js'
-import {MAX_INT32, MAX_INT64} from '@/constants'
-import {CborInt64} from './cbor/CborInt64'
 import {encodeMetadata} from './metadata/encodeMetadata'
-import {CatalystVotingSignature, TxPlanMetadata} from '@/types/txPlan'
-import {AddrKeyHash} from '@/types/address'
+import {
+  CATALYST_SIGNATURE_BYTE_LENGTH,
+  INTEGRITY_HASH_BYTE_LENGTH,
+  METADATA_HASH_BYTE_LENGTH,
+  TX_WITNESS_SIZES,
+} from './txConstants'
 
 export function estimateMetadataSize(metadata: TxPlanMetadata): number {
   let mockSignature: CatalystVotingSignature | undefined
@@ -47,13 +50,14 @@ export function estimateMetadataSize(metadata: TxPlanMetadata): number {
 
 interface EstimateParams {
   inputs: Array<TxInput>
+  referenceInputs: Array<TxInputRef>
   outputs: Array<TxOutput>
   certificates: Array<TxCertificate>
   withdrawals: Array<TxWithdrawal>
   datums: Array<TxDatum>
   redeemers: Array<TxRedeemer>
   collateralInputs: Array<TxInput>
-  scripts: Array<TxScript>
+  scripts: Array<TxScriptSource>
   mint: TokenBundle
   requiredSigners?: Array<AddrKeyHash>
   metadata?: TxPlanMetadata
@@ -63,6 +67,7 @@ interface EstimateParams {
 // Note(ppershing): can overshoot a bit
 export function estimateTxSize({
   inputs,
+  referenceInputs,
   outputs,
   certificates,
   withdrawals,
@@ -76,6 +81,8 @@ export function estimateTxSize({
 }: EstimateParams): number {
   // the 1 is there for the key in the tx map
   const txInputsSize = encode(cborizeTxInputs(inputs)).length + 1
+  const txReferenceInputsSize =
+    referenceInputs.length > 0 ? encode(cborizeTxInputs(referenceInputs)).length + 1 : 0
   const txCollateralInputsSize =
     collateralInputs.length > 0 ? encode(cborizeTxInputs(collateralInputs)).length + 1 : 0
 
@@ -89,7 +96,7 @@ export function estimateTxSize({
   }))
   // TODO: max output size
   const txOutputsSize = encode(cborizeTxOutputs(txOutputs)).length + 1
-  const txMintSize = mint.length > 0 ? encode(cborizeTxOutputTokenBundle(mint)).length + 1 : 0
+  const txMintSize = mint.length > 0 ? encode(cborizeTxOutputTokenBundle(mint, true)).length + 1 : 0
 
   const MAX_ENCODED_INTEGER_SIZE = encode(new CborInt64(MAX_INT64)).length + 1
 
@@ -99,7 +106,7 @@ export function estimateTxSize({
   const txValidityStartSize = MAX_ENCODED_INTEGER_SIZE // TODO only include optionally
   const txFeeSize = MAX_ENCODED_INTEGER_SIZE
   const txNetworkIdSize = 2 // key + (0 | 1) TODO only include optionally
-  const txAuxiliaryDataHashSize = metadata /* encoded as a buffer */
+  const txAuxiliaryDatumHashSize = metadata /* encoded as a buffer */
     ? METADATA_HASH_BYTE_LENGTH + 2 /* cbor header */ + 1 /* key */
     : 0
   const txScriptIntegrityHashSize =
@@ -110,6 +117,7 @@ export function estimateTxSize({
     requiredSigners.length > 0 ? encode(cborizeRequiredSigners(requiredSigners)).length + 1 : 0
   const txAuxSize =
     txInputsSize +
+    txReferenceInputsSize /* new in Babbage */ +
     txCollateralInputsSize /* new in Alonzo */ +
     txOutputsSize +
     txMintSize +
@@ -120,7 +128,7 @@ export function estimateTxSize({
     txTtlSize +
     txValidityStartSize /* new in Alonzo */ +
     txScriptIntegrityHashSize /* new in Alonzo */ +
-    txAuxiliaryDataHashSize +
+    txAuxiliaryDatumHashSize +
     txRequiredSignersSize /* new in Alonzo */
 
   const allInputs = [...inputs, ...collateralInputs]

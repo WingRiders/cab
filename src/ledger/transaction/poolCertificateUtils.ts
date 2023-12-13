@@ -1,19 +1,19 @@
+import {MAX_INT64, MIN_INT64} from '@/constants'
+import {CabInternalError, CabInternalErrorReason} from '@/errors'
 import {
-  TxStakepoolOwner,
-  TxStakepoolMargin,
-  TxStakepoolRelay,
-  TxRelayType,
-  TxPoolParams,
-  BigNumber,
-} from '@/types'
-import {
-  TxRelayTypes,
   _Margin,
   _PoolRelay,
   _StakepoolRegistrationCert,
+  TxRelayTypes,
 } from '@/ledger/transaction/cliParser/types'
-import {CabInternalError, CabInternalErrorReason} from '@/errors'
-import {MAX_INT64, MIN_INT64} from '@/constants'
+import {
+  BigNumber,
+  TxPoolParams,
+  TxRelayType,
+  TxStakepoolMargin,
+  TxStakepoolOwner,
+  TxStakepoolRelay,
+} from '@/types'
 
 const enum PoolParamsByteLengths {
   POOL_HASH = 28,

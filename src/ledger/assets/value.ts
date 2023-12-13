@@ -1,6 +1,7 @@
-import {map, flatMap, mergeWith, mapValues} from 'lodash'
-import {TokenBundle, Lovelace, Asset, Token, AssetQuantity, HexString} from '@/types/base'
+import {flatMap, map, mapValues, mergeWith} from 'lodash'
+
 import {Value} from '@/types/asset'
+import {Asset, AssetQuantity, HexString, Lovelace, Token, TokenBundle} from '@/types/base'
 
 // TODO this is really slow with large utxos, optimize it
 export const tokenBundleToValue = (tokenBundle: TokenBundle, coins?: Lovelace): Value =>

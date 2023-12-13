@@ -1,5 +1,5 @@
-import {TxCertificateType, BigNumber} from '@/types'
 import {TxWitnessKey} from '@/ledger/transaction/cbor/cborizedTx'
+import {BigNumber, TxCertificateType} from '@/types'
 
 export enum TxBodyKeys { // non const enum can be used to iterate over
   INPUTS = 0,

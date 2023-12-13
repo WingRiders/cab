@@ -1,5 +1,7 @@
-import {Lovelace, Ada} from '@/types/base'
 import {BigNumber} from 'bignumber.js'
+
+import {Ada, Lovelace} from '@/types/base'
+
 import {ADA_DECIMALS} from '../constants'
 
 const LOVELACES_IN_ADA = 10 ** ADA_DECIMALS
@@ -28,4 +30,4 @@ const lovelaceToAda = <T extends Lovelace | number | BigNumber>(value: T): Lovel
     ? value.div(LOVELACES_IN_ADA)
     : value / LOVELACES_IN_ADA) as LovelaceToAdaReturn<T>
 
-export {lovelaceToAda, adaToLovelace}
+export {adaToLovelace, lovelaceToAda}

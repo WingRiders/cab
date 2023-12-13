@@ -1,5 +1,6 @@
-import {BigNumber} from '@/types'
 import isNumber from 'lodash/isNumber'
+
+import {BigNumber} from '@/types'
 
 export function fromFraction(fraction: string | number): BigNumber {
   if (isNumber(fraction)) {

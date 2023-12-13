@@ -1,24 +1,92 @@
-import * as api from '@/dappConnector'
-import {CborHexString} from '@/dappConnector'
 import {BigNumber} from 'bignumber.js'
-import {decode} from 'borc'
+import {decode, Tagged} from 'borc'
+import {isMap} from 'lodash'
+
+import * as api from '@/dappConnector'
+import {
+  CborHexString,
+  PlutusScript,
+  TxOutputDatumType,
+  TxOutputType,
+  TxScriptType,
+} from '@/dappConnector'
+import {CborizedTxDatum} from '@/ledger/transaction'
+
+import {normalizeDatum} from './normalize'
 
 /* Functions for converting decoded CBOR API objects to JS API objects */
 
+/* either hash or inline */
+type DatumOption = [type: 0, hash: Uint8Array] | [type: 1, datum: Tagged<Uint8Array>]
+type ScriptRef = Tagged<Uint8Array>
+type Script =
+  | [type: 0, nativeScript: Uint8Array]
+  | [type: 1, plutusV1Script: Uint8Array]
+  | [type: 2, plutusv2Script: Uint8Array]
+
 type DecodedUtxo = [
   input: [txHash: Uint8Array, index: Numerical],
-  output: [address: Uint8Array, value: DecodedValue, datumHash?: Uint8Array]
+  output:
+    | [address: Uint8Array, value: DecodedValue, datumHash?: Uint8Array]
+    | Map<number, Uint8Array | DecodedValue | DatumOption | ScriptRef>
 ]
 
-export const parseUtxo = (decoded: DecodedUtxo): api.TxUnspentOutput => {
-  const [[txHash, index], [address, value, datumHash]] = decoded
+const parseDatumOption = (datumOption: DatumOption | undefined) => {
+  if (datumOption === undefined) {
+    return {}
+  }
   return {
-    txInput: {txHash: toHexString(txHash) as api.TxHash, index: new BigNumber(index) as api.UInt},
-    txOutput: {
-      address: toHexString(address) as api.Address,
-      value: parseValue(value),
-      ...(datumHash ? {datumHash: toHexString(datumHash) as api.Hash32} : {}),
+    datumOption:
+      datumOption[0] === 0
+        ? ({
+            type: TxOutputDatumType.HASH,
+            datumHash: toHexString(datumOption[1]) as api.Hash32,
+          } as const)
+        : ({
+            type: TxOutputDatumType.INLINED_DATUM,
+            datum: normalizeDatum(CborizedTxDatum.decode(Buffer.from(datumOption[1].value))),
+          } as const),
+  }
+}
+
+const parseScriptRef = (decoded: ScriptRef | undefined) => {
+  if (decoded === undefined) {
+    return {}
+  }
+  const script = decode(decoded.value) as Script
+  return {
+    scriptRef: {
+      type: script[0] as TxScriptType,
+      script: toHexString(script[1]) as PlutusScript,
     },
+  }
+}
+
+export const parseUtxo = (decoded: DecodedUtxo): api.TxUnspentOutput => {
+  const [[txHash, index], output] = decoded
+  const txInput = {txHash: toHexString(txHash) as api.TxHash, index: new BigNumber(index) as api.UInt}
+  if (isMap(output)) {
+    return {
+      txInput,
+      txOutput: {
+        type: TxOutputType.POST_ALONZO,
+        address: toHexString(output.get(0) as unknown as Uint8Array) as api.Address,
+        value: parseValue(output.get(1) as unknown as DecodedValue),
+        ...parseDatumOption(output.get(2) as DatumOption | undefined),
+        ...parseScriptRef(output.get(3) as ScriptRef | undefined),
+      },
+    }
+  } else {
+    const [address, value, datumHash] = output
+    return {
+      txInput,
+      txOutput: {
+        type: TxOutputType.LEGACY,
+        address: toHexString(address) as api.Address,
+        value: parseValue(value),
+        ...(datumHash ? {datumHash: toHexString(datumHash) as api.Hash32} : {}),
+      },
+    }
   }
 }
 
@@ -42,7 +110,7 @@ export const parseBootstrapWitnesses = (
   }))
 }
 
-type Numerical = number | BigNumber
+export type Numerical = number | BigNumber
 type Bytes = Buffer | Uint8Array
 export type DecodedValue = Numerical | [Numerical, Map<Bytes, Map<Bytes, Numerical>>]
 

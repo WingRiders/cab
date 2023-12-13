@@ -43,4 +43,4 @@ function mnemonicToList(mnemonic) {
   return mnemonic.split(' ')
 }
 
-export {generateMnemonic, validateMnemonic, validatePaperWalletMnemonic, isMnemonicInPaperWalletFormat}
+export {generateMnemonic, isMnemonicInPaperWalletFormat, validateMnemonic, validatePaperWalletMnemonic}

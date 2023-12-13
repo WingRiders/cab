@@ -1,8 +1,8 @@
 import {CborizedCliWitness, TxAux, TxSigned} from '@/ledger/transaction'
+import {TxWitnessSet} from '@/types'
 import {BIP32Path} from '@/types/address'
 import {Network} from '@/types/network'
 import {AddressToPathMapper, CryptoProviderFeature, DerivationScheme} from '@/types/wallet'
-import {TxWitnessSet} from '@/types'
 
 export interface ICryptoProvider {
   network: Network

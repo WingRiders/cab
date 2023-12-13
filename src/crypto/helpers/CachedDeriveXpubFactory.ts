@@ -1,8 +1,10 @@
-import {BIP32Path} from '@/types/address'
-import {HARDENED_THRESHOLD, isShelleyPath} from '@/ledger/address'
-import indexIsHardened from './indexIsHardened'
 import {derivePublic as deriveChildXpub} from 'cardano-crypto.js'
+
 import {UnexpectedError, UnexpectedErrorReason} from '@/errors'
+import {HARDENED_THRESHOLD, isShelleyPath} from '@/ledger/address'
+import {BIP32Path} from '@/types/address'
+
+import indexIsHardened from './indexIsHardened'
 
 const BYRON_V2_PATH = [HARDENED_THRESHOLD + 44, HARDENED_THRESHOLD + 1815, HARDENED_THRESHOLD]
 

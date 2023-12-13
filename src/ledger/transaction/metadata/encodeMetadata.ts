@@ -1,7 +1,9 @@
+import {bech32} from 'cardano-crypto.js'
+import {compact, groupBy} from 'lodash'
+
 import {HexString} from '@/types'
 import {TxMetadata, TxMetadatum, TxMetadatumLabel} from '@/types/transaction'
-import {TxPlanMetadata, CatalystVotingRegistrationData} from '@/types/txPlan'
-import {bech32} from 'cardano-crypto.js'
+import {CatalystVotingRegistrationData, TxPlanMetadata} from '@/types/txPlan'
 
 const METADTA_MAX_STR_LENGTH = 64
 
@@ -29,6 +31,49 @@ function encodeMessage(messages: string[]): TxMetadatum {
   const splitMessages = messages.map(splitMetadatumString).flat()
 
   return new Map<string, string[]>([['msg', splitMessages]])
+}
+
+function encodeNfts({version, data: nfts}: NonNullable<TxPlanMetadata['nfts']>): TxMetadatum {
+  // NFT standard defined by cip25, found at:
+  // https://cips.cardano.org/cips/cip25/
+  const encodedNfts = new Map<TxMetadatum, Map<string | Buffer, Map<string, TxMetadatum>> | number>()
+
+  Object.entries(groupBy(nfts, 'policyId')).forEach(([policyId, nfts]) => {
+    const assets = new Map<string | Buffer, Map<string, TxMetadatum>>()
+    nfts.forEach((nft) => {
+      const properties = new Map<string, TxMetadatum>(
+        compact([
+          ['name', splitMetadatumString(nft.name)],
+          ['image', splitMetadatumString(nft.image)],
+          nft.description && ['description', splitMetadatumString(nft.description)],
+          nft.mediaType && ['mediaType', splitMetadatumString(nft.mediaType)],
+          nft.files && [
+            'files',
+            nft.files.map(
+              (file) =>
+                new Map<string, TxMetadatum>([
+                  ['name', splitMetadatumString(file.name)],
+                  ['mediaType', splitMetadatumString(file.mediaType)],
+                  ['src', splitMetadatumString(file.src)],
+                ])
+            ),
+          ],
+          ...(nft.otherProperties ? Array.from(nft.otherProperties.entries()) : []),
+        ])
+      )
+
+      // version 1 and 2 are using different encoding for keys
+      const assetNameBuffer = Buffer.from(nft.assetName, 'hex')
+      const assetKey = version === 1 ? assetNameBuffer.toString('utf8') : assetNameBuffer
+
+      assets.set(assetKey, properties)
+    })
+    const policyIdKey = version === 1 ? policyId : Buffer.from(policyId, 'hex')
+    encodedNfts.set(policyIdKey, assets)
+  })
+
+  encodedNfts.set('version', version)
+  return encodedNfts
 }
 
 /**
@@ -88,6 +133,9 @@ export const encodeMetadata = (metadata?: TxPlanMetadata): TxMetadata | null => 
   }
   if (metadata.message) {
     txMetadata.set(TxMetadatumLabel.MESSAGE, encodeMessage(metadata.message))
+  }
+  if (metadata.nfts) {
+    txMetadata.set(TxMetadatumLabel.NFT, encodeNfts(metadata.nfts))
   }
   return txMetadata
 }

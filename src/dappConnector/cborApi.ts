@@ -168,13 +168,13 @@ export interface CborAPI {
    *
    * @throws APIError
    */
-  getCollateral?(): Promise<CborHexString[] | undefined | null>
+  getCollateral?(params: {amount: CborHexString}): Promise<CborHexString[] | undefined | null>
 
   /**
    * 🚧 Experimental endpoints
    */
   experimental?: {
     /** @see {@link getCollateral} */
-    getCollateral?(): Promise<CborHexString[] | undefined | null>
+    getCollateral?: CborAPI['getCollateral']
   }
 }

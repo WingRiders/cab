@@ -1,4 +1,5 @@
 import {BigNumber} from 'bignumber.js'
+
 import {Asset, CryptoProviderFeature, CryptoProviderVersion} from '../types'
 
 export const ADA_DECIMALS = 6
@@ -115,3 +116,6 @@ export const AdaAsset: Asset = {
   policyId: '',
   assetName: '',
 }
+
+export const CREDENTIAL_HASH_SIZE = 28
+export const TOKEN_NAME_MAX_SIZE = 32
