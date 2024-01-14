@@ -1,14 +1,12 @@
 {
   "name": "@wingriders/cab",
-  "version": "2.0.24",
+  "version": "2.0.25",
   "description": "CAB is a library to help with development of Cardano apps for browser and Node.js",
   "repository": {
     "type": "git",
     "url": "git://github.com/WingRiders/cab.git"
   },
-  "main": "./dist/index.js",
   "exports": {
-    ".": "./dist/index.js",
     "./account": "./dist/account/index.js",
     "./constants": "./dist/constants/index.js",
     "./crypto": "./dist/crypto/index.js",
@@ -25,11 +23,9 @@
     "./wallet": "./dist/wallet/index.js",
     "./wallet/connector": "./dist/wallet/connector/index.js"
   },
-  "types": "index.d.ts",
   "files": [
     "dist",
     "**/*.d.ts",
-    ".assets",
     "README.md",
     "LICENSE"
   ],
@@ -43,7 +39,7 @@
   "scripts": {
     "ts-patch": "ts-patch install -s",
     "prepack": "yarn clean && yarn ts-patch && yarn build",
-    "clean": "rm -Rf index.d.ts index.d.ts.map account constants crypto dappConnector dataProviders dist errors helpers ledger logger types wallet",
+    "clean": "rm -Rf dist",
     "build": "yarn ts-patch && yarn tsc -p ./tsconfig.build.json",
     "dev": "yarn ts-patch && yarn tsc -p ./tsconfig.build.json --watch",
     "test": "mocha"
