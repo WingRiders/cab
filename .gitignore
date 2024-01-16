@@ -7,6 +7,7 @@ dist
 !declarations.d.ts
 /account/
 /constants/
+/blockchainExplorer/
 /crypto/
 /dataProviders/
 /errors/
