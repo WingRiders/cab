@@ -3,7 +3,7 @@ import {NonNullableObject} from '@/helpers/makeNonNullable'
 /**
  * borrowed from ogmis client
  */
-interface ExUnits {
+export interface ExUnits {
   memory: UInt64
   steps: UInt64
 }
@@ -24,7 +24,7 @@ interface CostModels {
   [k: string]: CostModel
 }
 type CostModel = Int64[]
-interface Prices {
+export interface Prices {
   memory: Ratio
   steps: Ratio
 }

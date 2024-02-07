@@ -1,6 +1,6 @@
 {
   "name": "@wingriders/cab",
-  "version": "2.0.26",
+  "version": "2.0.27",
   "description": "CAB is a library to help with development of Cardano apps for browser and Node.js",
   "repository": {
     "type": "git",
