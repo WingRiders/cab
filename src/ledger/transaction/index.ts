@@ -1,7 +1,14 @@
 export {sortUtxos} from './arrangeUtxos'
 export {CborIndefiniteLengthArray} from './cbor/CborIndefiniteLengthArray'
 export {CborInt64} from './cbor/CborInt64'
-export {cborizeTxDatums, cborizeTxRedeemers, cborizeTxWitnesses} from './cbor/cborize'
+export {
+  cborizeSingleTxOutput,
+  cborizeTxDatums,
+  cborizeTxOutputs,
+  cborizeTxRedeemers,
+  cborizeTxValue,
+  cborizeTxWitnesses,
+} from './cbor/cborize'
 export type {
   CborizedCliWitness,
   CborizedTxStructured,

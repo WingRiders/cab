@@ -95,7 +95,7 @@ export function cborizeTxOutputTokenBundle(
   return policyIdMap
 }
 
-function cborizeTxValue(coins: Lovelace, tokenBundle: TokenBundle = []): CborizedTxValue {
+export function cborizeTxValue(coins: Lovelace, tokenBundle: TokenBundle = []): CborizedTxValue {
   const cborizedCoins = new CborInt64(coins)
   const amount: CborizedTxValue =
     tokenBundle.length > 0 ? [cborizedCoins, cborizeTxOutputTokenBundle(tokenBundle)] : cborizedCoins
