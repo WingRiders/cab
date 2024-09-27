@@ -18,6 +18,7 @@ export type {
 } from './cbor/cborizedTx'
 export {TxBodyKey, TxWitnessKey} from './cbor/cborizedTx'
 export {CborizedTxDatum} from './cbor/CborizedTxDatum'
+export {CborizedTxScriptRef} from './cbor/CborizedTxScriptRef'
 export {SORT_ORDER as CBOR_SORT_ORDER} from './cbor/cborTypes'
 export {encodeTxScript} from './cbor/utils'
 export {estimateTxSize} from './estimateSize'
