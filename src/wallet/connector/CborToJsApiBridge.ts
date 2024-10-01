@@ -6,6 +6,7 @@ import type {
   Address,
   CborAPI,
   CborHexString,
+  DataSignature,
   HexString,
   JsAPI,
   NetworkId,
@@ -168,10 +169,10 @@ export class CborToJsApiBridge implements JsAPI {
     })
   }
 
-  signData(addr: Address, sigStructure: HexString): Promise<HexString> {
+  signData(address: Address, data: HexString): Promise<DataSignature> {
     this.assertState()
 
-    return this.cborApi.signData(addr as string as CborHexString, sigStructure as CborHexString)
+    return this.cborApi.signData(address as string as CborHexString, data as CborHexString)
   }
 
   submitTx(tx: Transaction): Promise<TxHash> {

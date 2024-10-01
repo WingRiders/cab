@@ -259,6 +259,11 @@ export type UtxoFilterOptions = {
   withoutLocked?: boolean
 }
 
+export type DataSignature = {
+  signature: HexString
+  key: HexString
+}
+
 /**
  * Follows the standard API from CIP-0030
  */
@@ -403,13 +408,12 @@ export interface JsAPI {
    * Please refer to the CIP-0008 spec for details on how to construct the sig structure.
    *
    * @param addr hex-encoded address ⚠️ not a Bech32 encoded address
-   * @param sigStructure the signing structure from CIP-0008 encoded with cbor
-   *    Intentionally leaving the cbor encoding here in place.
-   * @return hex-encoded bytes
+   * @param data hex-encoded data to sign
+   * @return object with hex-encoded signature and public key
    *
    * @throws APIError, DataSignError
    */
-  signData(addr: Address, sigStructure: HexString): Promise<HexString>
+  signData(address: Address, data: HexString): Promise<DataSignature>
 
   /**
    * As wallets should already have this ability, we allow dApps to request that a transaction

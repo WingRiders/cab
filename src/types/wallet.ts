@@ -1,5 +1,6 @@
+import {Address as HexAddress} from '../dappConnector'
 import {BIP32Path, PubKeyHash, StakingHash, XPubKey} from './address'
-import {Address, Lovelace, TokenBundle} from './base'
+import {Address as BechAddress, Lovelace, TokenBundle} from './base'
 import {StakePoolInfoExtended} from './stakepool'
 
 export enum CryptoProviderFeature {
@@ -32,11 +33,11 @@ export type WalletSecretDef = {
 
 export type AddressProvider = (i: number) => Promise<{
   path: BIP32Path
-  address: Address
+  address: BechAddress
 }>
 
 export type AddressWithMeta = {
-  address: Address
+  address: BechAddress
   bip32StringPath: string
   isUsed: boolean
 }
@@ -45,12 +46,14 @@ export type AddressToPathMapping = {
   [key: string]: BIP32Path
 }
 
-export type AddressToPathMapper = (entry: Address | PubKeyHash | StakingHash) => BIP32Path
+export type AddressToPathMapper = (
+  entry: BechAddress | HexAddress | PubKeyHash | StakingHash
+) => BIP32Path
 
 export type BaseAccountInfo = {
   shelleyAccountXpub: XPubKey
   stakingXpub: XPubKey
-  stakingAddress: Address
+  stakingAddress: BechAddress
   balance: Lovelace
   collateralsAmount: Lovelace
   tokenBalance: TokenBundle

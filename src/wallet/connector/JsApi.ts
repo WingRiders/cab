@@ -130,7 +130,7 @@ export class JsApi implements api.JsAPI {
     return signatures
   }
 
-  signData(_addr: api.Address, _sigStructure: api.HexString): Promise<api.HexString> {
+  signData(_address: api.Address, _data: api.HexString): Promise<api.DataSignature> {
     this.assertState()
     throw new ApiError(api.APIErrorCode.InternalError, 'Method not implemented.')
   }

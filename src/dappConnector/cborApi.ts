@@ -1,4 +1,5 @@
 import {HexString, NetworkId, Paginate} from './common'
+import {DataSignature} from './jsApi'
 
 export type CborHexString = HexString & {__type: 'CborHexString'}
 
@@ -136,12 +137,12 @@ export interface CborAPI {
    *
    * @param addr cbor encoded address
    *   cddl see {@link getUsedAddresses}
-   * @param sigStructure the signing structure encoded with cbor from CIP-0008
-   * @return hex-encoded bytes
+   * @param data hex-encoded data to sign
+   * @return object with hex-encoded signature and public key
    *
    * @throws APIError, DataSignError
    */
-  signData(addr: CborHexString, sigStructure: CborHexString): Promise<HexString>
+  signData(address: CborHexString, data: CborHexString): Promise<DataSignature>
 
   /**
    * As wallets should already have this ability, we allow dApps to request that a transaction
