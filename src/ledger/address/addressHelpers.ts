@@ -21,7 +21,7 @@ import {HARDENED_THRESHOLD} from './addressConstants'
 export const encodeAddress = (address: Buffer): Address => {
   const addressType = getAddressType(address)
   if (addressType === AddressTypes.BOOTSTRAP) {
-    return base58.encode(address) as Address
+    throw new Error(`CAB: Invalid address type: ${addressType}`)
   }
 
   const prefix = [AddressTypes.REWARD, AddressTypes.REWARD_SCRIPT].includes(addressType)
@@ -33,16 +33,12 @@ export const encodeAddress = (address: Buffer): Address => {
   return bech32.encode(addressPrefix, address) as Address
 }
 
-export const encodeCatalystVotingKey = (votingKey: HexString): string => {
-  return bech32.encode('ed25519_pk', Buffer.from(votingKey, 'hex'))
-}
-
 export const xpub2pub = (xpub: Buffer) => xpub.slice(0, 32)
 
 export const xpub2ChainCode = (xpub: Buffer) => xpub.slice(32, 64)
 
 // takes xpubkey, converts it to pubkey and then to 28 byte blake2b encoded hash
-const xpub2blake2b224Hash = (xpub: Buffer) => getPubKeyBlake2b224Hash(xpub2pub(xpub))
+export const xpub2blake2b224Hash = (xpub: Buffer) => getPubKeyBlake2b224Hash(xpub2pub(xpub))
 
 // TODO: do this more precisely
 export const isShelleyPath = (path: BIP32Path) => path[0] - HARDENED_THRESHOLD === 1852
@@ -67,6 +63,11 @@ export const bechAddressToHex = (address: string): HexString => {
 export const base58AddressToHex = (address: string): HexString => {
   const parsed = base58.decode(address)
   return parsed.toString('hex')
+}
+
+export const stakingAddressFromPub = (stakePub: Buffer, networkId: NetworkId): Address => {
+  const addrBuffer: Buffer = packRewardAddress(getPubKeyBlake2b224Hash(stakePub), networkId)
+  return encodeAddress(addrBuffer)
 }
 
 export const stakingAddressFromXpub = (stakeXpub: Buffer, networkId: NetworkId): Address => {
@@ -96,14 +97,13 @@ export const isBase = (address: HexString): boolean => {
   return getAddressType(Buffer.from(address, 'hex')) === AddressTypes.BASE
 }
 
-export const isByron = (address: HexString): boolean => {
-  return getAddressType(Buffer.from(address, 'hex')) === AddressTypes.BOOTSTRAP
-}
-
 export const addressToHex = (address: Address): HexString =>
   // TODO: we should restrict the type of address to Address and in that case
   // we dont need to validate the address
   isShelleyFormat(address) ? bechAddressToHex(address) : base58AddressToHex(address)
+
+export const addressToBuffer = (address: Address): Buffer =>
+  isShelleyFormat(address) ? bech32.decode(address).data : base58.decode(address)
 
 export const addressType = (address: Address): AddressTypes => {
   const addressBuffer = shelleyAddressToBuffer(address)
@@ -116,7 +116,7 @@ export const hasSpendingScript = (address: Address): boolean => {
 }
 
 export const spendingHashFromAddress = (address: Address): HexString => {
-  const addressBuffer = shelleyAddressToBuffer(address)
+  const addressBuffer = addressToBuffer(address)
   const addressesWithSpendingHash = [
     AddressTypes.BASE,
     AddressTypes.BASE_SCRIPT_KEY,
@@ -169,7 +169,7 @@ function shelleyAddressToBuffer(address: Address) {
   return addressBuffer
 }
 
-export const rewardAddressFromAddress = (address: Address): Buffer => {
+const rewardAddressFromAddress = (address: Address): Buffer => {
   if (!isShelleyFormat(address)) throw new Error('Invalid address')
   const addressBuffer = bech32.decode(address).data
   switch (getAddressType(addressBuffer)) {
@@ -184,6 +184,14 @@ export const rewardAddressFromAddress = (address: Address): Buffer => {
       return addressBuffer
     default:
       throw new Error(`Invalid staking address ${address} type: ${getAddressType(addressBuffer)}`)
+  }
+}
+
+export const safeRewardAddressFromAddress = (address: Address) => {
+  try {
+    return encodeAddress(rewardAddressFromAddress(address))
+  } catch {
+    return null
   }
 }
 

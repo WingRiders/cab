@@ -18,6 +18,10 @@ export type Token = Asset & {
   quantity: AssetQuantity
 }
 
+export type TokenObject = Omit<Token, 'quantity'> & {
+  quantity: string // possibly huge amounts
+}
+
 export type TokenBundle = Token[]
 
 export const Ada = BigNumber

@@ -1,93 +1,97 @@
-import {AccountInfo} from '@/account/Account'
-import {DEFAULT_TTL_SLOTS} from '@/constants'
+import {Account} from '@/account'
 import {ICryptoProvider} from '@/crypto/ICryptoProvider'
-import {CabInternalError, CabInternalErrorReason} from '@/errors'
-import {TxSigned} from '@/ledger/transaction'
-import {IBlockchainExplorer, TxBlockInfo, TxSubmission} from '@/types/blockchainExplorer'
+import {DataProvider} from '@/dataProvider'
+import {HexString} from '@/types'
 import {NetworkId} from '@/types/network'
-import {ProtocolParameters} from '@/types/protocolParameters'
-import {CryptoProviderFeature, DerivationScheme} from '@/types/wallet'
+import {CryptoProviderFeature} from '@/types/wallet'
 
 import {AccountManager} from './AccountManager'
 
-type WalletConfig = {
-  shouldExportPubKeyBulk: boolean
+type WalletParams = {
+  dataProvider: DataProvider
+  cryptoProvider: ICryptoProvider
   gapLimit: number
 }
 
-type WalletParams = {
-  blockchainExplorer: IBlockchainExplorer
-  cryptoProvider: ICryptoProvider
-  config: WalletConfig
-}
+/**
+ * Wallet is responsible for discovering accounts and submitting transactions.
+ *
+ * @example
+ * const wallet = new Wallet({dataProvider, cryptoProvider, gapLimit})
+ * const account = await wallet.getOrLoadAccount(0)
+ * const utxos = account.getUtxos()
+ */
 export class Wallet {
-  private blockchainExplorer: IBlockchainExplorer
   private cryptoProvider: ICryptoProvider
+  private dataProvider: DataProvider
   private accountManager: AccountManager
-  private protocolParameters: ProtocolParameters | null
 
-  constructor({blockchainExplorer, cryptoProvider, config}: WalletParams) {
-    this.blockchainExplorer = blockchainExplorer
+  constructor({cryptoProvider, dataProvider, gapLimit}: WalletParams) {
     this.cryptoProvider = cryptoProvider
+    this.dataProvider = dataProvider
 
     this.accountManager = new AccountManager({
-      config,
       cryptoProvider,
-      blockchainExplorer,
+      dataProvider,
+      gapLimit,
     })
+  }
+
+  /**
+   * Discovers active accounts for this wallet.
+   *
+   * Account is considered active if it has been used at least once. That means
+   * there is at least one used address for the account.
+   *
+   * Discovers up to `maxAccounts` accounts, defaulting to 20. The discovery
+   * ends with the first inactive account.
+   *
+   * @param maxAccounts Maximum number of accounts to discover
+   * @returns Promise of discovered accounts order by account index ascending
+   */
+  discoverAccounts({maxAccounts}: {maxAccounts: number} = {maxAccounts: 20}) {
+    return this.accountManager.discoverAccounts(maxAccounts)
+  }
+
+  /**
+   * Returns Account with loaded addresses and UTxOs
+   * @param index
+   * @param reloadAccountInfo Indicates if to reload account info (addresses) when initializing the account
+   * @param reloadUtxos Indicates if to reload UTxOs when initializing the account
+   * @param stakeKeyHashesToDerive How many stake key hashes should be discovered and can be used for signing
+   */
+  async getOrLoadAccount(
+    index: number,
+    reloadAccountInfo: boolean = true,
+    reloadUtxos: boolean = true,
+    stakeKeyHashesToDerive: number = 1
+  ): Promise<Account> {
+    const account = this.getAccount(index)
+    if (account != null) {
+      return account
+    }
+    return await this.accountManager.loadAccount(
+      index,
+      reloadAccountInfo,
+      reloadUtxos,
+      stakeKeyHashesToDerive
+    )
+  }
+
+  getAccount(accountIndex: number): Account | undefined {
+    return this.accountManager.getAccount(accountIndex)
+  }
+
+  /**
+   * Submits transaction to the blockchain using this wallet's data provider.
+   * Throws an error if the submission fails
+   */
+  async submitTx(txCbor: HexString): Promise<void> {
+    await this.dataProvider.submitTx(txCbor)
   }
 
   getNetworkId(): NetworkId {
     return this.cryptoProvider.network.networkId
-  }
-
-  getWalletName(): string {
-    return this.cryptoProvider.getName()
-  }
-
-  isHwWallet(): boolean {
-    return this.cryptoProvider.isHardwareSupported()
-  }
-
-  getAccountManager(): AccountManager {
-    return this.accountManager
-  }
-
-  getAccount(index: number) {
-    return this.accountManager.getAccount(index)
-  }
-
-  public async calculateTtl(): Promise<number> {
-    try {
-      const {
-        Right: {bestSlot},
-      } = await this.blockchainExplorer.getBestSlot()
-      return bestSlot + DEFAULT_TTL_SLOTS
-    } catch (e) {
-      throw new CabInternalError(CabInternalErrorReason.NetworkError, {causedBy: e})
-    }
-  }
-
-  submitTx(signedTx: TxSigned): Promise<TxSubmission> {
-    const params = {
-      walletType: this.getWalletName(),
-      walletVersion: this.cryptoProvider.getVersion(),
-      walletDerivationScheme: this.cryptoProvider.getDerivationScheme().type,
-      // TODO: add stake key for debugging purposes
-    }
-    const {txBody, txHash} = signedTx
-    return this.blockchainExplorer.submitTxRaw(txHash, txBody, params)
-  }
-
-  getWalletSecretDef(): {rootSecret: Buffer | void; derivationScheme: DerivationScheme} {
-    return {
-      rootSecret: this.cryptoProvider.getSecret(),
-      derivationScheme: this.cryptoProvider.getDerivationScheme(),
-    }
-  }
-
-  fetchTxBlockInfo(txHash): Promise<TxBlockInfo | null> {
-    return this.blockchainExplorer.fetchTxBlockInfo(txHash)
   }
 
   ensureFeatureIsSupported(feature: CryptoProviderFeature) {
@@ -98,32 +102,5 @@ export class Wallet {
       return {code: e.name, params: {message: e.message}}
     }
     return null
-  }
-
-  async getBaseAccountsInfo(): Promise<AccountInfo[]> {
-    const accounts = await this.accountManager.discoverAccounts() // discovers and loads accounts
-    return accounts.map((account) => account.getAccountInfo())
-  }
-
-  getMaxAccountIndex() {
-    return this.accountManager.getMaxAccountIndex()
-  }
-
-  async getPoolInfo(url) {
-    const poolInfo = await this.blockchainExplorer.getPoolInfo(url)
-    return poolInfo
-  }
-
-  async getProtocolParameters(): Promise<ProtocolParameters> {
-    if (this.protocolParameters) {
-      return Promise.resolve(this.protocolParameters)
-    }
-    try {
-      const pparams = await this.blockchainExplorer.getProtocolParameters()
-      this.protocolParameters = pparams
-      return this.protocolParameters
-    } catch (err) {
-      throw new CabInternalError(CabInternalErrorReason.NetworkError, {causedBy: err})
-    }
   }
 }

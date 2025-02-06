@@ -1,4 +1,4 @@
-import {Account} from '@/account'
+import {Account} from '@/account/Account'
 import {EvaluateTxBodyFn, getEvaluatedTxPlan} from '@/helpers/exUnits'
 import {sleep} from '@/helpers/sleep'
 import {getLogger} from '@/logger'

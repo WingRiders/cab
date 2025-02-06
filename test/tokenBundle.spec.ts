@@ -1,9 +1,11 @@
 import assert from 'assert'
 import {BigNumber} from 'bignumber.js'
-import {Address, Lovelace} from '@/types'
-import {orderTokenBundle, encodeAssetFingerprint} from '@/ledger/assets'
+
+import {encodeAssetFingerprint, orderTokenBundle} from '@/ledger/assets'
 import {computeMinUTxOLovelaceAmount} from '@/ledger/transaction'
-import {protocolParametersAlonzo as protocolParameters} from './data/protocolParameters'
+import {Address, Lovelace, TxOutputType, ZeroLovelace} from '@/types'
+
+import {protocolParameters} from './data/protocolParameters'
 
 const ADDRESS =
   'addr_test1qz3gy8e29dvnv5yh7yt63jez5eujm5x3ycvs690ft0dl0qxekak9gdv2957kajptsngac27d84fw4maeq9pl7qqdtenssqmxkl' as Address
@@ -91,11 +93,16 @@ describe('Token bundle', () => {
     it('should calculate min ADA value for empty tokens', () => {
       assert.deepEqual(
         computeMinUTxOLovelaceAmount({
-          protocolParameters,
-          address: ADDRESS,
-          tokenBundle: [],
+          minUtxoDepositCoefficient: protocolParameters.minUtxoDepositCoefficient,
+          output: {
+            type: TxOutputType.LEGACY,
+            isChange: false,
+            address: ADDRESS,
+            coins: ZeroLovelace,
+            tokenBundle: [],
+          },
         }),
-        new Lovelace(29).times(protocolParameters.coinsPerUtxoWord)
+        new Lovelace(225).times(protocolParameters.minUtxoDepositCoefficient)
       )
     })
     it('should calculate min ADA value for multiple assets under one policy', () => {
@@ -113,11 +120,16 @@ describe('Token bundle', () => {
       ]
       assert.deepEqual(
         computeMinUTxOLovelaceAmount({
-          protocolParameters,
-          address: ADDRESS,
-          tokenBundle,
+          minUtxoDepositCoefficient: protocolParameters.minUtxoDepositCoefficient,
+          output: {
+            type: TxOutputType.LEGACY,
+            isChange: false,
+            address: ADDRESS,
+            coins: ZeroLovelace,
+            tokenBundle,
+          },
         }),
-        new Lovelace(1413762)
+        new Lovelace(1155080)
       )
     })
     it('should calculate min ADA value for multiple assets under multiple policies', () => {
@@ -135,11 +147,16 @@ describe('Token bundle', () => {
       ]
       assert.deepEqual(
         computeMinUTxOLovelaceAmount({
-          protocolParameters,
-          address: ADDRESS,
-          tokenBundle,
+          minUtxoDepositCoefficient: protocolParameters.minUtxoDepositCoefficient,
+          output: {
+            type: TxOutputType.LEGACY,
+            isChange: false,
+            address: ADDRESS,
+            coins: ZeroLovelace,
+            tokenBundle,
+          },
         }),
-        new Lovelace(1551690)
+        new Lovelace(1314550)
       )
     })
     it('should calculate min ADA value for multiple assets under multiple policies with same assetName', () => {
@@ -157,11 +174,16 @@ describe('Token bundle', () => {
       ]
       assert.deepEqual(
         computeMinUTxOLovelaceAmount({
-          protocolParameters,
-          address: ADDRESS,
-          tokenBundle,
+          minUtxoDepositCoefficient: protocolParameters.minUtxoDepositCoefficient,
+          output: {
+            type: TxOutputType.LEGACY,
+            isChange: false,
+            address: ADDRESS,
+            coins: ZeroLovelace,
+            tokenBundle,
+          },
         }),
-        new Lovelace(1551690)
+        new Lovelace(1314550)
       )
     })
   })

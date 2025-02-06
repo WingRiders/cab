@@ -1,8 +1,9 @@
 /* eslint-disable max-len */
 import assert from 'assert'
-import {Network, NetworkId} from '@/types'
+
 import {JsCryptoProvider, mnemonicToWalletSecretDef} from '@/crypto'
 import {shelleyBaseAddressProvider} from '@/ledger/address'
+import {Network, NetworkId} from '@/types'
 
 const getCryptoProvider = async (mnemonic, networkId) => {
   const walletSecretDef = await mnemonicToWalletSecretDef(mnemonic)

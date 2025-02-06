@@ -1,11 +1,13 @@
 import {equal, strictEqual, throws} from 'assert'
-import {encode} from 'borc'
 import {BigNumber} from 'bignumber.js'
+import {encode} from 'borc'
 
-import {CborIndefiniteLengthArray} from '../src/ledger/transaction/cbor/CborIndefiniteLengthArray'
-import {CborInt64} from '../src/ledger/transaction/cbor/CborInt64'
 import * as api from '@/dappConnector'
 import {cborizeNormalizedTxValue} from '@/ledger/transaction/cbor/cborize'
+
+import {CborDefiniteLengthArray} from '../src/ledger/transaction/cbor/CborDefiniteLengthArray'
+import {CborIndefiniteLengthArray} from '../src/ledger/transaction/cbor/CborIndefiniteLengthArray'
+import {CborInt64} from '../src/ledger/transaction/cbor/CborInt64'
 
 describe('CBOR', () => {
   const encodeHex = (obj) => encode(obj).toString('hex')
@@ -27,6 +29,18 @@ describe('CBOR', () => {
         encodeHex(arr),
         '9f000102030405060708090a0b0c0d0e0f101112131415161718181819181a181b181c181d181e181f182018211822ff'
       )
+    })
+  })
+
+  describe('encoding of definite length arrays', () => {
+    it('should properly encode empty array', () => {
+      const arr = new CborDefiniteLengthArray([])
+      equal(encodeHex(arr), '80')
+    })
+
+    it('should properly encode short array', () => {
+      const arr = new CborDefiniteLengthArray([1, 2, 3])
+      equal(encodeHex(arr), '83010203')
     })
   })
 

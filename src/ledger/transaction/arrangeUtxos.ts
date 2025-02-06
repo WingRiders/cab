@@ -1,11 +1,11 @@
 import {partition, some} from 'lodash'
 
-import {isNonScriptUtxo} from '@/helpers'
 import {isRecommendedCollateral, MAX_COLLATERAL_COUNT} from '@/helpers/collaterals'
-import {addressToHex, isBase} from '@/ledger/address'
+import {isNonScriptUtxo} from '@/helpers/isNonScriptUtxo'
+import {addressToHex, isBase} from '@/ledger/address/addressHelpers'
 import {aggregateTokenBundles} from '@/ledger/assets'
 import {Token, TokenBundle} from '@/types/base'
-import {UTxO} from '@/types/transaction'
+import {TxInputRef, UTxO} from '@/types/transaction'
 import {TxPlanArgs} from '@/types/txPlan'
 
 export const sortUtxos = (utxos: UTxO[]) =>
@@ -15,8 +15,13 @@ export const sortUtxos = (utxos: UTxO[]) =>
       : Buffer.from(a.txHash, 'hex').compare(Buffer.from(b.txHash, 'hex'))
   )
 
-function isEqualUtxo(a: UTxO, b: UTxO) {
-  return a.txHash === b.txHash && a.outputIndex === b.outputIndex
+const isEqualTxInputRef = (a: TxInputRef, b: TxInputRef) =>
+  a.txHash === b.txHash && a.outputIndex === b.outputIndex
+
+export const matchTxInputRef = (a?: TxInputRef) => (b?: TxInputRef) => {
+  // if one of the txInputRefs is null, they match only if both of them are null
+  if (!a) return !b
+  return !!b && isEqualTxInputRef(a, b)
 }
 
 function splitPotentialCollaterals(utxos: UTxO[], maxCollateralCount = MAX_COLLATERAL_COUNT) {
@@ -38,7 +43,7 @@ export function arrangeUtxos(utxos: UTxO[], txPlanArgs: TxPlanArgs): [UTxO[], UT
   // filter out utxos that are already defined in the plan
   const usedCollaterals = txPlanArgs.collateralInputs || []
   const inputUtxos = [...(txPlanArgs.inputs || []).map(({utxo}) => utxo), ...usedCollaterals]
-  const unusedUtxos = utxos.filter((utxo) => !inputUtxos.find((input) => isEqualUtxo(utxo, input)))
+  const unusedUtxos = utxos.filter((utxo) => !inputUtxos.find((input) => isEqualTxInputRef(utxo, input)))
 
   // sort collaterals to the end, if the txPlan already contains some potential collaterals
   // don't try to find potential utxos that might fit
@@ -49,7 +54,7 @@ export function arrangeUtxos(utxos: UTxO[], txPlanArgs: TxPlanArgs): [UTxO[], UT
           // just in case remove these utxos from the start
           unusedUtxos.filter(
             (utxo) =>
-              !some(txPlanArgs.potentialCollaterals, (collateral) => isEqualUtxo(utxo, collateral))
+              !some(txPlanArgs.potentialCollaterals, (collateral) => isEqualTxInputRef(utxo, collateral))
           ),
         ]
       : splitPotentialCollaterals(unusedUtxos, MAX_COLLATERAL_COUNT - usedCollaterals.length)

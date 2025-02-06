@@ -1,7 +1,6 @@
 import {Address as HexAddress} from '../dappConnector'
-import {BIP32Path, PubKeyHash, StakingHash, XPubKey} from './address'
-import {Address as BechAddress, Lovelace, TokenBundle} from './base'
-import {StakePoolInfoExtended} from './stakepool'
+import {BIP32Path, PubKeyHash, StakingHash} from './address'
+import {Address as BechAddress} from './base'
 
 export enum CryptoProviderFeature {
   MINIMAL,
@@ -9,7 +8,6 @@ export enum CryptoProviderFeature {
   BULK_EXPORT,
   POOL_OWNER,
   MULTI_ASSET,
-  VOTING,
   MINTING,
   PLUTUS,
 }
@@ -49,42 +47,3 @@ export type AddressToPathMapping = {
 export type AddressToPathMapper = (
   entry: BechAddress | HexAddress | PubKeyHash | StakingHash
 ) => BIP32Path
-
-export type BaseAccountInfo = {
-  shelleyAccountXpub: XPubKey
-  stakingXpub: XPubKey
-  stakingAddress: BechAddress
-  balance: Lovelace
-  collateralsAmount: Lovelace
-  tokenBalance: TokenBundle
-  usedAddresses: Array<AddressWithMeta>
-  unusedAddresses: Array<AddressWithMeta>
-  visibleAddresses: Array<AddressWithMeta>
-  isUsed: boolean
-  accountIndex: number
-}
-
-export type AccountInfo = BaseAccountInfo & {
-  stakingInfo: {
-    currentEpoch: number
-    isStakeKeyRegistered: boolean
-    delegation: StakePoolInfoExtended & {
-      retiringEpoch: number | null
-      url: string
-    }
-    rewards: Lovelace
-  }
-}
-
-export type TokenRegistrySubject = string & {__typeTokenRegistrySubject: any}
-
-export type RegisteredTokenMetadata = {
-  subject: TokenRegistrySubject
-  description: string
-  name: string
-  ticker?: string
-  symbol?: string
-  url?: string
-  logoBase64?: string
-  decimals?: number
-}

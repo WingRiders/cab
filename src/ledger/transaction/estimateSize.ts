@@ -1,9 +1,9 @@
 import {encode} from 'borc'
 import {addressToBuffer, hasSpendingScript} from 'cardano-crypto.js'
-import {partition, uniq} from 'lodash'
+import {uniq} from 'lodash'
 
 import {MAX_INT32, MAX_INT64} from '@/constants'
-import {isShelleyFormat, isV1Address, spendingHashFromAddress} from '@/ledger/address/addressHelpers'
+import {spendingHashFromAddress} from '@/ledger/address/addressHelpers'
 import {AddrKeyHash} from '@/types/address'
 import {Address, Lovelace, TokenBundle, ZeroLovelace} from '@/types/base'
 import {
@@ -17,7 +17,7 @@ import {
   TxWithdrawal,
   UTxO,
 } from '@/types/transaction'
-import {CatalystVotingSignature, TxPlanMetadata} from '@/types/txPlan'
+import {TxPlanMetadata} from '@/types/txPlan'
 
 import {CborInt64} from './cbor/CborInt64'
 import {
@@ -32,19 +32,10 @@ import {
   cborizeTxWithdrawals,
 } from './cbor/cborize'
 import {encodeMetadata} from './metadata/encodeMetadata'
-import {
-  CATALYST_SIGNATURE_BYTE_LENGTH,
-  INTEGRITY_HASH_BYTE_LENGTH,
-  METADATA_HASH_BYTE_LENGTH,
-  TX_WITNESS_SIZES,
-} from './txConstants'
+import {INTEGRITY_HASH_BYTE_LENGTH, METADATA_HASH_BYTE_LENGTH, TX_WITNESS_SIZES} from './txConstants'
 
 export function estimateMetadataSize(metadata: TxPlanMetadata): number {
-  let mockSignature: CatalystVotingSignature | undefined
-  if (metadata.votingData && !metadata.votingSignature) {
-    mockSignature = 'x'.repeat(CATALYST_SIGNATURE_BYTE_LENGTH * 2)
-  }
-  const draftMetadata = encodeMetadata({...metadata, votingSignature: mockSignature})
+  const draftMetadata = encodeMetadata({...metadata})
   return encode(draftMetadata).length
 }
 
@@ -131,8 +122,7 @@ export function estimateTxSize({
     txAuxiliaryDatumHashSize +
     txRequiredSignersSize /* new in Alonzo */
 
-  const allInputs = [...inputs, ...collateralInputs]
-  const [shelleyInputs, byronInputs] = partition(allInputs, ({address}) => isShelleyFormat(address))
+  const shelleyInputs = [...inputs, ...collateralInputs]
 
   const requiredPubKeySignatures = uniq([
     ...shelleyInputs
@@ -141,21 +131,19 @@ export function estimateTxSize({
     ...requiredSigners,
   ])
 
+  // TODO: Possible overestimation:
+  // - withdrawals and certificates can be signed with the same key
+  // - verify estimation of TX_WITNESS_SIZES.shelley
   const shelleyWitnessesSize =
     (withdrawals.length + certificates.length + requiredPubKeySignatures.length) *
     TX_WITNESS_SIZES.shelley
-
-  const byronWitnessesSize = byronInputs.reduce((acc, {address}) => {
-    const witnessSize = isV1Address(address) ? TX_WITNESS_SIZES.byronV1 : TX_WITNESS_SIZES.byronv2
-    return acc + witnessSize
-  }, 0)
 
   const alonzoWitnessSize =
     (datums.length > 0 ? encode(cborizeTxDatums(datums)).length + 1 : 0) +
     (redeemers.length > 0 ? encode(cborizeTxRedeemers(redeemers, inputs, mint)).length + 1 : 0) +
     (scripts.length > 0 ? encode(cborizeTxScripts(scripts)).length + 1 : 0)
 
-  const txWitnessesSize = shelleyWitnessesSize + byronWitnessesSize + alonzoWitnessSize
+  const txWitnessesSize = shelleyWitnessesSize + alonzoWitnessSize
 
   // Assuming simple metadata structure without any addition scripts
   const txAuxiliaryDataSize = metadata ? estimateMetadataSize(metadata) + 1 : 1

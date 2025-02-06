@@ -3,7 +3,7 @@ export {assetNameHex2Readable} from './assetNameHex2Readable'
 export {compareAssets, matchAsset} from './compareAssets'
 export {printAda} from './printAda'
 export {printTokenAmount} from './printTokenAmount'
-export {getTokenFromBundle, invertTokenBundle, isNonEmptyTokenBundle} from './tokenBundle'
+export * from './tokenBundle'
 export {
   aggregateTokenBundles,
   arraySum,
@@ -21,5 +21,6 @@ export {
   tokenToValue,
   valueAdd,
   valueToLovelace,
+  valueToToken,
   valueToTokenBundle,
 } from './value'

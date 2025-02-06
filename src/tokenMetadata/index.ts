@@ -1,36 +1,18 @@
 import {CabInternalError, CabInternalErrorReason} from '@/errors'
+import {assetId, cacheResults, request} from '@/helpers'
+import {Asset} from '@/types'
 
-import {assetId, cacheResults, request} from '../helpers'
 import {
-  Asset,
-  FailureResponse,
   RegisteredTokenMetadata,
   SuccessResponse,
+  TokenMetadata,
+  TokenMetadataResponse,
   TokenRegistrySubject,
-} from '../types'
+} from './types'
+
+export * from './types'
 
 const MAX_SUBJECTS_COUNT = 2000
-
-export type TokenMetadataField<ValueType> = {
-  sequenceNumber: number
-  value: ValueType
-  signatures: Array<{
-    signature: string
-    publicKey: string
-  }>
-}
-
-export type TokenMetadata = {
-  subject: string
-  name: TokenMetadataField<string>
-  description: TokenMetadataField<string>
-  policy?: string
-  ticker?: TokenMetadataField<string>
-  url?: TokenMetadataField<string>
-  logo?: TokenMetadataField<string>
-  decimals?: TokenMetadataField<number>
-}
-export type TokenMetadataResponse = SuccessResponse<TokenMetadata[]> | FailureResponse
 
 export const createTokenRegistrySubject = (policyId: string, assetName: string): TokenRegistrySubject =>
   assetId({assetName, policyId}) as TokenRegistrySubject //

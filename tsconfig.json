@@ -1,24 +1,22 @@
 {
   "compilerOptions": {
+    "isolatedModules": true,
+    "lib": ["ES2020", "DOM"],
+    "target": "es2020",
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "CommonJS",
+    "esModuleInterop": true,
+    "preserveConstEnums": true,
+    "resolveJsonModule": true,
+    "downlevelIteration": true,
+    "outDir": "./dist",
     "baseUrl": "./src",
+    "strictNullChecks": true,
+    "strictBindCallApply": true,
     "paths": {
       "@/*": ["./*"]
     },
-    "outDir": "./dist",
-
-    "lib": ["ES2020", "DOM"],
-    "target": "es2020",
-    "module": "CommonJS",
-    "moduleResolution": "node",
-
-    "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "esModuleInterop": true,
-    "preserveConstEnums": true,
-    "strictNullChecks": true,
-    "strictBindCallApply": true,
-
     "plugins": [
       // Transform paths in output .js files
       {"transform": "typescript-transform-paths"},

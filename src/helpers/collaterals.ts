@@ -1,11 +1,11 @@
 import {isNonScriptUtxo} from '@/helpers/isNonScriptUtxo'
-import {hasSpendingScript} from '@/ledger/address'
+import {hasSpendingScript} from '@/ledger/address/addressHelpers'
 import {UTxO} from '@/types/transaction'
 
 /**
  * The theoretical maximum collateral amount that would be needed currently
  * ```
- *   max_fee = (max_mem_units * memory_price) + (max_step_units * steps_price) +
+ *   max_fee = (max_mem_units * memory_price) + (max_cpu_units * cpu_price) +
  *             (max_tx_size * fee_per_byte) + base_fee
  * ```
  * The collateral needs to be 150% of the fee
@@ -23,5 +23,7 @@ export const isPotentialCollateral = (utxo: UTxO) =>
   !hasSpendingScript(utxo.address) &&
   isNonScriptUtxo(utxo)
 
-export const isRecommendedCollateral = (utxo: UTxO) =>
-  isPotentialCollateral(utxo) && utxo.coins.gte(MIN_RECOMMENDED_COLLATERAL_AMOUNT)
+export const isCustomCollateral = (minCollateralAmount: number) => (utxo: UTxO) =>
+  isPotentialCollateral(utxo) && utxo.coins.gte(minCollateralAmount)
+
+export const isRecommendedCollateral = isCustomCollateral(MIN_RECOMMENDED_COLLATERAL_AMOUNT)

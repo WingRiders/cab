@@ -3,23 +3,19 @@
 import {encode} from 'borc'
 import {
   addressToBuffer,
-  base58,
   derivePrivate,
-  getBootstrapAddressAttributes,
   hasStakingScript,
   sign as signMsg,
   xpubToHdPassphrase,
 } from 'cardano-crypto.js'
-import {chain, partition} from 'lodash'
+import {chain} from 'lodash'
 
-import {removeNullFields} from '@/helpers'
+import {removeNullFields} from '@/helpers/removeNullFields'
 import {
   hasSpendingScript,
-  isShelleyFormat,
   isShelleyPath,
   spendingHashFromAddress,
   stakingHashFromAddress,
-  xpub2ChainCode,
   xpub2pub,
 } from '@/ledger/address'
 import {
@@ -30,28 +26,22 @@ import {
   TxAux,
   TxSigned,
 } from '@/ledger/transaction'
-import {
-  encodeVotingRegistrationData,
-  encodeVotingSignature,
-} from '@/ledger/transaction/metadata/encodeMetadata'
 import {hashSerialized} from '@/ledger/transaction/utils'
 import {
-  Address,
   BIP32Path,
   CryptoProviderFeature,
   HexString,
   Network,
   PubKeyHash,
   TokenBundle,
-  TxByronWitness,
   TxScriptSource,
   TxShelleyWitness,
   TxWitnessSet,
 } from '@/types'
-import {TxDatum, TxInput, TxMetadatumLabel, TxRedeemer} from '@/types/transaction'
-import {CatalystVotingRegistrationData} from '@/types/txPlan'
+import {TxDatum, TxInput, TxRedeemer} from '@/types/transaction'
 import {AddressToPathMapper, DerivationScheme} from '@/types/wallet'
 
+import {Address, DataSignature} from '../dappConnector'
 import {
   CabInternalError,
   CabInternalErrorReason,
@@ -161,27 +151,12 @@ export class JsCryptoProvider implements ICryptoProvider {
     return {publicKey, signature}
   }
 
-  async prepareByronWitness(
-    txHash: HexString,
-    path: BIP32Path,
-    address: Address
-  ): Promise<TxByronWitness> {
-    const signature = await this._sign(txHash, path)
-    const xpub = await this.deriveXpub(path)
-    const publicKey = xpub2pub(xpub)
-    const chainCode = xpub2ChainCode(xpub)
-    // TODO: check if this works for testnet, apparently it doesnt
-    const addressAttributes = encode(getBootstrapAddressAttributes(base58.decode(address)))
-    return {publicKey, signature, chainCode, addressAttributes}
-  }
-
   async prepareWitnesses(
     txAux: TxAux,
     addressToAbsPathMapper: AddressToPathMapper,
     partial: boolean = false
   ): Promise<{
     shelleyWitnesses: TxShelleyWitness[]
-    byronWitnesses: TxByronWitness[]
     inputs: TxInput[]
     mint?: TokenBundle
     scripts?: TxScriptSource[]
@@ -201,7 +176,6 @@ export class JsCryptoProvider implements ICryptoProvider {
     } = txAux
     const txHash = txAux.getId()
     const _shelleyWitnesses: Array<Promise<TxShelleyWitness>> = []
-    const _byronWitnesses: Array<Promise<TxByronWitness>> = []
 
     /**
      * Only pubkey addresses need a signature.
@@ -209,38 +183,18 @@ export class JsCryptoProvider implements ICryptoProvider {
      * For scripts, collateral inputs have to be provided.
      * Collateral inputs have to be ada-only pubkey addresses.
      */
-    const allInputs = [...inputs, ...(collateralInputs || [])]
-    const [shelleyInputs, byronInputs] = partition(
-      allInputs.filter(({address}) => !!address), // filter out inputs with no address (scripts)
-      ({address}) => isShelleyFormat(address)
-    )
+    const shelleyInputs = [...inputs, ...(collateralInputs || [])].filter(({address}) => !!address) // filter out inputs with no address (scripts)
+
     const spendingKeyHashes = chain(shelleyInputs)
       .map((input) => input.address)
       .filter((address) => !hasSpendingScript(address))
       .map((address) => spendingHashFromAddress(address) as PubKeyHash)
       .value()
-
-    const byronAddresses = chain(byronInputs)
-      .map((input) => input.address)
-      .uniq()
-      .value()
-
     const stakingKeyHashes = chain([...certificates, ...withdrawals])
       .map((entry) => entry.stakingAddress)
       .filter((address) => !hasStakingScript(addressToBuffer(address)))
       .map((address) => stakingHashFromAddress(address))
       .value()
-
-    byronAddresses.forEach((address) => {
-      const spendingPath = addressToAbsPathMapper(address)
-      if (!spendingPath) {
-        if (partial) return
-        throw new CabInternalError(CabInternalErrorReason.TxSignError, {
-          message: 'Missing byron spending path',
-        })
-      }
-      _byronWitnesses.push(this.prepareByronWitness(txHash, spendingPath, address))
-    })
 
     const shelleyAddresses = chain([
       ...spendingKeyHashes,
@@ -256,46 +210,25 @@ export class JsCryptoProvider implements ICryptoProvider {
         if (partial) return
         throw new CabInternalError(CabInternalErrorReason.TxSignError, {
           message: path
-            ? 'Path does not match a shelley path'
-            : 'Missing address key hash spending path',
+            ? `Path does not match a shelley path: ${path}`
+            : `Missing address key hash spending path: ${addrKeyHash}`,
         })
       }
       _shelleyWitnesses.push(this.prepareShelleyWitness(txHash, path))
     })
 
     const shelleyWitnesses: TxShelleyWitness[] = await Promise.all(_shelleyWitnesses)
-    const byronWitnesses: TxByronWitness[] = await Promise.all(_byronWitnesses)
 
     const scriptWitnesses = removeNullFields({datums, scripts, redeemers, mint})
-    return {shelleyWitnesses, byronWitnesses, inputs, ...scriptWitnesses}
+    return {shelleyWitnesses, inputs, ...scriptWitnesses}
   }
 
-  private async signCatalystVoting(votingData: CatalystVotingRegistrationData) {
-    if (!votingData) throw new Error('No votingData found')
-    //extract only the voting data part
-    const data = encodeVotingRegistrationData(votingData)
-    const votingMetadatum = new Map([[TxMetadatumLabel.CATALYST_VOTING_REGISTRATION_DATA, data]])
-    const registrationDataHash = hashSerialized(votingMetadatum)
-    const stakingPath = votingData.rewardDestinationAddress.stakingPath
-    const registrationDataWitness = await this.prepareShelleyWitness(registrationDataHash, stakingPath)
-    const signature = encodeVotingSignature(registrationDataWitness.signature.toString('hex'))
-    return {
-      data,
-      signature,
-    }
-  }
-
-  async finalizeTxAuxWithMetadata(txAux: TxAux): Promise<TxAux> {
-    if (!txAux.votingData && !(txAux.metadata && txAux.metadata.size > 0)) {
+  finalizeTxAuxWithMetadata(txAux: TxAux): TxAux {
+    if (!(txAux.metadata && txAux.metadata.size > 0)) {
       return txAux
     }
     // copy the aux metadata to not overwrite txAux
     const metadata = new Map(txAux.metadata ? txAux.metadata.entries() : [])
-    if (txAux.votingData) {
-      const {data, signature} = await this.signCatalystVoting(txAux.votingData)
-      metadata.set(TxMetadatumLabel.CATALYST_VOTING_REGISTRATION_DATA, data)
-      metadata.set(TxMetadatumLabel.CATALYST_VOTING_SIGNATURE, signature)
-    }
     return new ShelleyTxAux({
       ...txAux,
       metadata,
@@ -309,7 +242,7 @@ export class JsCryptoProvider implements ICryptoProvider {
     addressToPathMapper: AddressToPathMapper,
     partial: boolean = false
   ): Promise<CborizedTxStructured> {
-    const finalizedTxAux = await this.finalizeTxAuxWithMetadata(txAux)
+    const finalizedTxAux = this.finalizeTxAuxWithMetadata(txAux)
 
     const witnesses = await this.prepareWitnesses(finalizedTxAux, addressToPathMapper, partial)
     const txWitnesses = cborizeTxWitnesses(witnesses)
@@ -333,6 +266,14 @@ export class JsCryptoProvider implements ICryptoProvider {
 
   // eslint-disable-next-line require-await
   async witnessPoolRegTx(_txAux: TxAux, _addressToAbsPathMapper: AddressToPathMapper): Promise<any> {
+    throw new UnexpectedError(UnexpectedErrorReason.UnsupportedOperationError)
+  }
+
+  signData(
+    _address: Address,
+    _data: HexString,
+    _addressToAbsPathMapper: AddressToPathMapper
+  ): Promise<DataSignature> {
     throw new UnexpectedError(UnexpectedErrorReason.UnsupportedOperationError)
   }
 }

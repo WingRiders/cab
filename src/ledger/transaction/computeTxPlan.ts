@@ -3,10 +3,14 @@ import {encode} from 'borc'
 import {MAX_INT64} from '@/constants'
 import {CabInternalError, CabInternalErrorReason, UnexpectedErrorReason} from '@/errors'
 import {UnexpectedErrorSubCode} from '@/errors/unexpectedErrorReason'
-import {sumCoins} from '@/helpers'
 import {removeEmptyArray} from '@/helpers/removeEmptyArray'
 import {removeNullFields} from '@/helpers/removeNullFields'
-import {aggregateTokenBundles, getTokenBundlesDifference} from '@/ledger/assets/tokenFormatter'
+import {sumCoins} from '@/helpers/sumCoins'
+import {
+  aggregateTokenBundles,
+  getTokenBundlesDifference,
+  tokenBundleToTokenObjects,
+} from '@/ledger/assets'
 import {Address, Lovelace, ZeroLovelace} from '@/types/base'
 import {TxCertificateType, TxInput, TxOutput, TxOutputType} from '@/types/transaction'
 import {TxPlan, TxPlanDraft, TxPlanResult} from '@/types/txPlan'
@@ -99,7 +103,9 @@ export function addCollateralsIfNeeded(
   if (txPlan.collateralInputs.length === 0) {
     const feeWithoutCollateral = computeRequiredTxFee({...txPlan, collateralInputs: []})
     const singleCollateralValueNeeded = feeToRequiredCollateral(
-      feeWithoutCollateral.plus(computeAdditionalCollateralFee(pparams, true)) as Lovelace,
+      feeWithoutCollateral.plus(
+        computeAdditionalCollateralFee(pparams.minFeeCoefficient, true)
+      ) as Lovelace,
       collateralPercentage
     )
 
@@ -129,7 +135,7 @@ export function addCollateralsIfNeeded(
    * TODO optimize also around the amount, not just add the X largest ones that fit our requirements
    */
   const additionalCollateralPenalty = feeToRequiredCollateral(
-    computeAdditionalCollateralFee(pparams, false),
+    computeAdditionalCollateralFee(pparams.minFeeCoefficient, false),
     collateralPercentage
   )
 
@@ -186,7 +192,10 @@ export function computeTxPlan({
   const totalRewards = sumRewards(withdrawals)
   const totalInput = sumCoins(inputs).plus(totalRewards)
   const totalInputTokens = aggregateTokenBundles([...inputs.map(({tokenBundle}) => tokenBundle), mint])
-  const deposit = computeRequiredDeposit(certificates, protocolParameters)
+  const deposit = computeRequiredDeposit(
+    certificates,
+    Number(protocolParameters.stakeCredentialDeposit.ada.lovelace)
+  )
   const totalOutput = sumCoins(outputs).plus(deposit)
   const totalOutputTokens = aggregateTokenBundles(outputs.map(({tokenBundle}) => tokenBundle))
 
@@ -371,7 +380,7 @@ export function computeTxPlan({
     changeAddress,
     changeTokenBundle: tokenDifference,
     maxOutputTokens: MAX_OUTPUT_TOKENS,
-    protocolParameters,
+    minUtxoDepositCoefficient: protocolParameters.minUtxoDepositCoefficient,
   })
 
   const {error: tokenChangeCollateralError, txPlan: draftWithTokenChange} = addCollateralsIfNeeded(
@@ -498,7 +507,10 @@ export function computeStrictTxPlan({
 
   const totalCollaterals = sumCoins(collateralInputs)
 
-  const deposit = computeRequiredDeposit(certificates, protocolParameters)
+  const deposit = computeRequiredDeposit(
+    certificates,
+    Number(protocolParameters.stakeCredentialDeposit.ada.lovelace)
+  )
   const totalOutput = sumCoins(outputs).plus(deposit)
 
   const totalInputTokens = aggregateTokenBundles([...inputs.map(({tokenBundle}) => tokenBundle), mint])
@@ -538,6 +550,7 @@ export function computeStrictTxPlan({
       error: {
         code: UnexpectedErrorReason.CannotConstructTxPlan,
         reason: 'tokens',
+        tokenDifference: tokenBundleToTokenObjects(tokenDifference),
       },
     }
   }
@@ -659,7 +672,7 @@ export function computeStrictTxPlan({
   if (
     changeOutputRef.coins.isLessThan(
       computeMinUTxOLovelaceAmount({
-        protocolParameters,
+        minUtxoDepositCoefficient: protocolParameters.minUtxoDepositCoefficient,
         output: changeOutputRef,
       })
     )
@@ -728,7 +741,7 @@ export const validateTxPlan = (txPlanResult: TxPlanResult): TxPlanResult => {
     change.some((output) =>
       output.coins.lt(
         computeMinUTxOLovelaceAmount({
-          protocolParameters,
+          minUtxoDepositCoefficient: protocolParameters.minUtxoDepositCoefficient,
           output,
         })
       )
@@ -747,7 +760,7 @@ export const validateTxPlan = (txPlanResult: TxPlanResult): TxPlanResult => {
     outputs.some((output) =>
       output.coins.lt(
         computeMinUTxOLovelaceAmount({
-          protocolParameters,
+          minUtxoDepositCoefficient: protocolParameters.minUtxoDepositCoefficient,
           output,
         })
       )
@@ -764,7 +777,8 @@ export const validateTxPlan = (txPlanResult: TxPlanResult): TxPlanResult => {
 
   if (
     outputsWithChange.some(
-      (output) => encode(cborizeSingleTxOutput(output)).length > protocolParameters.maxTxSize
+      (output) =>
+        encode(cborizeSingleTxOutput(output)).length > protocolParameters.maxTransactionSize.bytes
     )
   ) {
     return {
@@ -784,13 +798,13 @@ export const validateTxPlan = (txPlanResult: TxPlanResult): TxPlanResult => {
     scripts: txPlan.scripts || [],
     mint: txPlan.mint || [],
   })
-  if (estimatedSize > protocolParameters.maxTxSize) {
+  if (estimatedSize > protocolParameters.maxTransactionSize.bytes) {
     return {
       ...noTxPlan,
       error: {
         code: CabInternalErrorReason.TxTooBig,
         reason: 'Transaction too big',
-        message: `Size ${estimatedSize} > ${protocolParameters.maxTxSize}`,
+        message: `Size ${estimatedSize} > ${protocolParameters.maxTransactionSize.bytes}`,
       },
     }
   }
@@ -833,7 +847,7 @@ export const validateTxPlan = (txPlanResult: TxPlanResult): TxPlanResult => {
   const totalRewards = sumRewards(withdrawals)
   // When deregistering stake key, returned "deposit" should be in all cases higher than the Tx fee
   const isDeregisteringStakeKey = certificates.some(
-    (c) => c.type === TxCertificateType.STAKING_KEY_DEREGISTRATION
+    (c) => c.type === TxCertificateType.STAKE_DEREGISTRATION
   )
   if (
     !isDeregisteringStakeKey &&

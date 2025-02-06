@@ -23,9 +23,9 @@ export class WalletConnector implements WalletApi {
     if (this.jsApiInstance) {
       return this.jsApiInstance
     }
-    const account = this.wallet.getAccount(this.activeAccountIndex)
+    const account = await this.wallet.getOrLoadAccount(this.activeAccountIndex)
 
-    this.jsApiInstance = new JsApi(this.wallet, await account.load())
+    this.jsApiInstance = new JsApi(this.wallet, account)
     return this.jsApiInstance
   }
 
@@ -44,6 +44,6 @@ export class WalletConnector implements WalletApi {
   }
 
   public async reloadActiveAccount(): Promise<void> {
-    await this.wallet.getAccount(this.activeAccountIndex).reload()
+    await this.wallet.getAccount(this.activeAccountIndex)?.reload()
   }
 }

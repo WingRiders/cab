@@ -1,6 +1,6 @@
 import {BigNumber} from 'bignumber.js'
 import {decode, Tagged} from 'borc'
-import {isMap} from 'lodash'
+import {isEmpty, isMap} from 'lodash'
 
 import * as api from '@/dappConnector'
 import {
@@ -99,23 +99,16 @@ export const parseVKeyWitnesses = (witnesses: [Uint8Array, Uint8Array][]): api.V
   }))
 }
 
-export const parseBootstrapWitnesses = (
-  witnesses: [Uint8Array, Uint8Array, Uint8Array, Uint8Array][]
-): api.BootstrapWitness[] => {
-  return witnesses.map(([publicKey, signature, chainCode, attributes]) => ({
-    publicKey: toHexString(publicKey),
-    signature: toHexString(signature),
-    chainCode: toHexString(chainCode),
-    addressAttributes: toHexString(attributes),
-  }))
-}
-
 export type Numerical = number | BigNumber
 type Bytes = Buffer | Uint8Array
 export type DecodedValue = Numerical | [Numerical, Map<Bytes, Map<Bytes, Numerical>>]
 
 export const parseValue = (decoded: DecodedValue): api.Value => {
-  const [coins, multiAsset] = Array.isArray(decoded) ? decoded : [decoded, undefined]
+  const [coins, multiAsset] = Array.isArray(decoded)
+    ? isEmpty(decoded[1])
+      ? [decoded[0], undefined] // if the asset asset map is empty, ignore it
+      : decoded
+    : [decoded, undefined]
 
   const value: api.Value = new Map()
   value.set(api.AdaPolicyId, new Map([[api.AdaAssetName, new BigNumber(coins) as api.UInt]]))

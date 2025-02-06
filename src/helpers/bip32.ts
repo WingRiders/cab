@@ -1,4 +1,4 @@
-import {HARDENED_THRESHOLD} from '@/ledger/address'
+import {HARDENED_THRESHOLD} from '@/ledger/address/addressConstants'
 
 export const toBip32StringPath = (derivationPath: number[]) =>
   `m/${derivationPath

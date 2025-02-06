@@ -7,7 +7,6 @@ export enum UnexpectedErrorReason {
   BulkExportCreationError = 'BulkExportCreationError',
   InvalidTxPlanType = 'InvalidTxPlanType',
   CborizeError = 'CborizeError',
-  InvalidRelayType = 'InvalidRelayType',
   CannotConstructTxPlan = 'CannotConstructTxPlan',
 }
 

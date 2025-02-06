@@ -2,7 +2,7 @@ import {BigNumber} from 'bignumber.js'
 import JSONBig from 'json-bigint'
 
 import {CabInternalError, CabInternalErrorReason} from '@/errors'
-import {toType} from '@/ledger/transaction/cbor/cborTypes'
+import {ARRAY_ENCODING, toType} from '@/ledger/transaction/cbor/cborTypes'
 import {TxDatum, TxDatumConstr, TxSimpleDatum} from '@/types/transaction'
 
 import {BaseDatumConstr} from './BaseDatumConstr'
@@ -25,7 +25,8 @@ function _parseFromSchemaJson(data: any): TxDatum {
     }
     return new BaseDatumConstr(
       data.constructor,
-      data.fields.map((field) => _parseFromSchemaJson(field))
+      data.fields.map((field) => _parseFromSchemaJson(field)),
+      data.__cborArrayEncoding
     )
   } else {
     // BASE types
@@ -94,7 +95,14 @@ function _toSchemaJson(data: TxDatum): any {
         return {int: bn}
       } else if ((data as TxDatumConstr).__typeConstr) {
         const dataConstr = data as TxDatumConstr
-        return {fields: dataConstr.data.map((elem) => _toSchemaJson(elem)), constructor: dataConstr.i}
+        return {
+          fields: dataConstr.data.map((elem) => _toSchemaJson(elem)),
+          constructor: dataConstr.i,
+          ...(dataConstr.__cborArrayEncoding !==
+          ARRAY_ENCODING.ZERO_LENGTH_FOR_EMPTY_FOR_OTHER_INDEFINITE
+            ? {__cborArrayEncoding: dataConstr.__cborArrayEncoding}
+            : {}),
+        }
       } else if ((data as TxSimpleDatum).__simpleDatum) {
         return _toSchemaJson((data as TxSimpleDatum).data)
       } else {
@@ -111,7 +119,7 @@ function _toSchemaJson(data: TxDatum): any {
   }
 }
 
-export function assertTxDatumConstr(data: any, name: string) {
+export function assertTxDatumConstr(data: any, name: string): asserts data is TxDatumConstr {
   if (!(data as TxDatumConstr).__typeConstr) {
     throw new CabInternalError(CabInternalErrorReason.DatumTypeNotSupported, {
       message: `${name} bad schema json`,
@@ -131,13 +139,12 @@ export function asTxDatumConstr({
   name: string
 }): TxDatumConstr {
   assertTxDatumConstr(data, name)
-  const dataConstr = data as TxDatumConstr
-  if (dataConstr.i !== constr || dataConstr.data.length !== requiredLength) {
+  if (data.i !== constr || data.data.length !== requiredLength) {
     throw new CabInternalError(CabInternalErrorReason.DatumTypeNotSupported, {
-      message: `${name} Expected ${constr} but was ${dataConstr.i}`,
+      message: `${name} Expected ${constr} but was ${data.i}`,
     })
   }
-  return dataConstr
+  return data
 }
 
 export function toSchemaJson(data: TxDatum): string {

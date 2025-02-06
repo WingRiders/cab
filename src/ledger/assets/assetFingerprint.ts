@@ -1,6 +1,6 @@
-import {bech32, blake2b} from 'cardano-crypto.js'
+import {bech32} from 'cardano-crypto.js'
 
-import {isAda} from '@/helpers'
+import {blake2b, isAda} from '@/helpers'
 import {Asset} from '@/types'
 import {HexString} from '@/types/base'
 

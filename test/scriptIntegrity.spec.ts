@@ -1,19 +1,12 @@
 import assert from 'assert'
-import {
-  TxRedeemerTag,
-  Language,
-  TxInput,
-  Address,
-  Lovelace,
-  AssetQuantity,
-  ZeroLovelace,
-} from '../src/types'
-import {hashScriptIntegrity, txFeeFunction} from '../src/ledger/transaction'
-import {protocolParametersAlonzo as protocolParameters} from './data/protocolParameters'
-import {Unit} from '../src/ledger/plutus'
+
+import {Unit} from '@/ledger/plutus'
+import {hashScriptIntegrity, txFeeFunction} from '@/ledger/transaction'
+import {Address, AssetQuantity, Language, Lovelace, TxInput, TxRedeemerTag, ZeroLovelace} from '@/types'
+
+import {protocolParameters} from './data/protocolParameters'
 
 describe('integrity hash', () => {
-  const {costModels} = protocolParameters
   const mockInputs: TxInput[] = [
     {
       address:
@@ -27,81 +20,83 @@ describe('integrity hash', () => {
 
   it('with datum output', () => {
     assert.equal(
-      hashScriptIntegrity({redeemers: [], datums: [1], inputs: mockInputs, costModels}).toString('hex'),
-      '4fb036bab07be26d263f69aae13ca5b1672bb8b96f4e60fe85f0638be9e0a26f'.toLowerCase()
+      hashScriptIntegrity({redeemers: [], datums: [1], inputs: mockInputs, protocolParameters}).toString(
+        'hex'
+      ),
+      '7901926c6b5549d6df40f20491b84eef0cefb757444d7e770be975603c2489cb'
     )
   })
 
   it('with datum input and redeeemer', () => {
     assert.equal(
       hashScriptIntegrity({
-        costModels,
+        protocolParameters,
         redeemers: [
           {
             tag: TxRedeemerTag.SPEND,
             ref: {...mockInputs[0]},
             data: 42,
-            exUnits: {memory: 5000, steps: 5000},
+            exUnits: {memory: 5000, cpu: 5000},
           },
         ],
         datums: [123],
         languages: [Language.PLUTUSV1],
         inputs: mockInputs,
       }).toString('hex'),
-      '48EEAE99506F2C826581B40304D9AF1DA2D44969AA53F5BCACD10B6CBFA8DB26'.toLowerCase()
+      '55b314267fbd773a9d05f6b9f65a026c6d5dbf782bd4ffa2402a5ab8a3ba0272'
     )
   })
 
   it('with datum input/output and redeeemer', () => {
     assert.equal(
       hashScriptIntegrity({
-        costModels,
+        protocolParameters,
         redeemers: [
           {
             tag: TxRedeemerTag.SPEND,
             ref: {...mockInputs[0]},
             data: 42,
-            exUnits: {memory: 5000, steps: 5000},
+            exUnits: {memory: 5000, cpu: 5000},
           },
         ],
         datums: [123, 1],
         languages: [Language.PLUTUSV1],
         inputs: mockInputs,
       }).toString('hex'),
-      '485541806b6009017ad0b02b8b786466435b1793b3d50fe9474740f4d52436e5'.toLowerCase()
+      '0782ed76f83a212fdaee542f7d95a415054ef5fdd4715df56ab05ddd7cb14625'
     )
   })
 
   it('with strings', () => {
     assert.equal(
       hashScriptIntegrity({
-        costModels,
+        protocolParameters,
         redeemers: [
           {
             tag: TxRedeemerTag.SPEND,
             ref: {...mockInputs[0]},
             data: 'hi',
-            exUnits: {memory: 5000, steps: 5000},
+            exUnits: {memory: 5000, cpu: 5000},
           },
         ],
         datums: ['hello', [1, 2]], // out datums are added to the end
         languages: [Language.PLUTUSV1],
         inputs: mockInputs,
       }).toString('hex'),
-      'c4a1f59b79cbf7c3ca95dfb39cfe29be663af246d6549f97b879b783033c9595'
+      '9e7e8e64df4cbd8f4a284f7dbfcef3562a4d1b18013529c48edb84bccf92d161'
     )
   })
 
   it('with datum input and mint', () => {
     assert.equal(
       hashScriptIntegrity({
-        costModels,
+        protocolParameters,
         redeemers: [
           {
             tag: TxRedeemerTag.MINT,
             ref: {policyId: 'ca37dd6b151b6a1d023ecbd22d7e881d814b0c58a3a3148b42b865a0'},
             data: 42,
-            exUnits: {memory: 5000, steps: 5000},
+            exUnits: {memory: 5000, cpu: 5000},
           },
         ],
         datums: [123],
@@ -115,20 +110,20 @@ describe('integrity hash', () => {
           },
         ],
       }).toString('hex'),
-      '2c93a03c754722c449004bdf539b0482de5c230082355a98c6b5c1416eec4d0a'
+      '84dc7dfae5afe6693cf578a15bcb745a9ca7ed0a5a02ee676e8b76a15afa74d7'
     )
   })
 
   it('failing tx on mainnet', () => {
     assert.equal(
       hashScriptIntegrity({
-        costModels,
+        protocolParameters,
         redeemers: [
           {
             tag: TxRedeemerTag.MINT,
             ref: {policyId: '648823ffdad1610b4162f4dbc87bd47f6f9cf45d772ddef661eff198'},
             data: new Unit(),
-            exUnits: {memory: 1700, steps: 476468},
+            exUnits: {memory: 1700, cpu: 476468},
           },
         ],
         datums: [],
@@ -147,7 +142,7 @@ describe('integrity hash', () => {
           },
         ],
       }).toString('hex'),
-      '579c3687d76bc602e3d54d44536eb667b14c1ab8a944f826d97863e82c85277b'
+      '95d4a95ba7bc950e5d9de2f598f711f9c2466757ceb2448a9dfe102c99c0b89b'
     )
   })
 })
@@ -157,7 +152,7 @@ describe('fees', () => {
   it('withdraw script', () => {
     const CLI_BUFFER = 100 // number of extra bytes compared to the cborHex in the signed txs
     assert.deepEqual(
-      txFeeFunction(385 + CLI_BUFFER, protocolParameters, [{memory: 1700, steps: 476468}]),
+      txFeeFunction(385 + CLI_BUFFER, 0, protocolParameters, [{memory: 1700, cpu: 476468}]),
       new Lovelace(176854)
     )
   })

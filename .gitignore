@@ -1,21 +1,15 @@
-node_modules
-dist
-
-# skip all type declarations
-*.d.ts
-*.d.ts.map
-!declarations.d.ts
+index.d.ts
+index.d.ts.map
 /account/
 /constants/
-/blockchainExplorer/
 /crypto/
-/dataProviders/
+/dappConnector/
+/dataProvider/
+/dist/
 /errors/
 /helpers/
 /ledger/
 /logger/
-/network/
-/tokenRegistry/
+/tokenMetadata/
 /types/
 /wallet/
-/dappConnector/

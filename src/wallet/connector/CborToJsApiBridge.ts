@@ -1,5 +1,5 @@
 import {BigNumber} from 'bignumber.js'
-import {decode, encode} from 'borc'
+import {decode, encode, Tagged} from 'borc'
 import {chain} from 'lodash'
 
 import type {
@@ -25,14 +25,8 @@ import {CborizedTxStructured, ShelleyTransactionStructured, TxWitnessKey} from '
 import {cborizeNormalizedTxValue, cborizeTxWitnesses} from '@/ledger/transaction/cbor/cborize'
 
 import {BridgeError} from './BridgeError'
-import {
-  DecodedValue,
-  parseBootstrapWitnesses,
-  parseCborHexUtxo,
-  parseValue,
-  parseVKeyWitnesses,
-} from './parse'
-import {reverseBootstrapWitness, reverseTx, reverseValue, reverseVKeyWitnesses} from './reverse'
+import {DecodedValue, parseCborHexUtxo, parseValue, parseVKeyWitnesses} from './parse'
+import {reverseTx, reverseValue, reverseVKeyWitnesses} from './reverse'
 
 const REQUESTED_COLLATERAL_LOVELACE = new BigNumber(MAX_COLLATERAL_AMOUNT)
 
@@ -161,11 +155,11 @@ export class CborToJsApiBridge implements JsAPI {
     }
 
     const vKeyWitnesses = decoded.get(TxWitnessKey.SHELLEY)
-    const bootstrapWitnesses = decoded.get(TxWitnessKey.BYRON)
 
     return optionalFields({
-      vKeyWitnesses: vKeyWitnesses && parseVKeyWitnesses(vKeyWitnesses),
-      bootstrapWitness: bootstrapWitnesses && parseBootstrapWitnesses(bootstrapWitnesses),
+      vKeyWitnesses:
+        vKeyWitnesses &&
+        parseVKeyWitnesses(vKeyWitnesses instanceof Tagged ? vKeyWitnesses.value : vKeyWitnesses),
     })
   }
 
@@ -194,7 +188,6 @@ const cborizeTx = (tx: Transaction): CborizedTxStructured => {
   // but encoding ignores those, it just uses tx hash and output index (which stay correct)
   const txAux = reverseTx(tx, [])
   const witnessSet = cborizeTxWitnesses({
-    byronWitnesses: reverseBootstrapWitness(tx.witnessSet.bootstrapWitness ?? []),
     shelleyWitnesses: reverseVKeyWitnesses(tx.witnessSet.vKeyWitnesses ?? []),
     scripts: txAux.scripts,
     datums: txAux.datums,

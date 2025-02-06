@@ -22,12 +22,6 @@ export enum CabInternalErrorReason {
   TxTooBig = 'TxTooBig',
   TxSignError = 'TxSignError',
   MaxTxExUnitsExceeded = 'MaxTxExUnitsExceeded',
-  PoolRegTxParserError = 'PoolRegTxParserError',
-  PoolRegIncorrectBufferLength = 'PoolRegIncorrectBufferLength',
-  PoolRegDuplicateOwners = 'PoolRegDuplicateOwners',
-  PoolRegInvalidMargin = 'PoolRegInvalidMargin',
-  PoolRegInvalidRelay = 'PoolRegInvalidRelay',
-  PoolRegInvalidMetadata = 'PoolRegInvalidMetadata',
   Error = 'Internal Error',
   Unsupported = 'Unsupported',
   /*

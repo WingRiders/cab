@@ -1,3 +1,4 @@
+import {ExecutionUnits} from '@cardano-ogmios/schema'
 import {BigNumber} from 'bignumber.js'
 import {sortBy} from 'lodash'
 
@@ -7,7 +8,7 @@ import {optionalFields} from '@/helpers'
 import {encodeAddress} from '@/ledger/address'
 import {valueAdd, valueToLovelace, valueToTokenBundle} from '@/ledger/assets'
 import {ShelleyTxAux, TxAux} from '@/ledger/transaction'
-import {toType} from '@/ledger/transaction/cbor/cborTypes'
+import {ARRAY_ENCODING, toType} from '@/ledger/transaction/cbor/cborTypes'
 import * as cab from '@/types'
 import {TxMintRedeemer, TxRedeemer, TxSpendRedeemer} from '@/types/transaction'
 
@@ -187,6 +188,7 @@ export function reverseDatum(datum: api.PlutusDatum): cab.TxDatum {
           i: constrDatum.i,
           data: constrDatum.data.map(reverseDatum),
           __typeConstr: true,
+          __cborArrayEncoding: ARRAY_ENCODING.ZERO_LENGTH_FOR_EMPTY_FOR_OTHER_INDEFINITE,
         }
       } else if ((datum as api.PlutusSimpleDatum).__simpleDatum) {
         const simpleDatum = datum as api.PlutusSimpleDatum
@@ -205,10 +207,10 @@ function reverseDatums(datums: api.PlutusDatum[]): cab.TxDatum[] {
   return datums.map(reverseDatum)
 }
 
-function reverseExUnits(exUnits: api.ExUnits): cab.TxExUnits {
+function reverseExUnits(exUnits: api.ExUnits): ExecutionUnits {
   return {
     memory: exUnits.mem.toNumber(),
-    steps: exUnits.steps.toNumber(),
+    cpu: exUnits.cpu.toNumber(),
   }
 }
 
@@ -277,7 +279,7 @@ function reverseScript(script: api.PlutusScript, language: cab.Language): cab.Tx
 }
 
 function reverseScripts(scripts: api.PlutusScript[], language: cab.Language): cab.TxScript[] {
-  return scripts.map(reverseScript)
+  return scripts.map((script) => reverseScript(script, language))
 }
 
 function reverseWithdrawal(withdrawal: [api.Address, api.Coin]): cab.TxWithdrawal {
@@ -336,16 +338,5 @@ export function reverseVKeyWitnesses(vKeyWitnesses: api.VKeyWitness[]): cab.TxSh
   return vKeyWitnesses.map((witness) => ({
     publicKey: Buffer.from(witness.publicKey, 'hex'),
     signature: Buffer.from(witness.signature, 'hex'),
-  }))
-}
-
-export function reverseBootstrapWitness(
-  bootstrapWitnesses: api.BootstrapWitness[]
-): cab.TxByronWitness[] {
-  return bootstrapWitnesses.map((witness) => ({
-    publicKey: Buffer.from(witness.publicKey, 'hex'),
-    signature: Buffer.from(witness.signature, 'hex'),
-    chainCode: Buffer.from(witness.chainCode, 'hex'),
-    addressAttributes: witness.addressAttributes,
   }))
 }

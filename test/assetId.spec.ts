@@ -1,4 +1,5 @@
 import assert from 'assert'
+
 import {assetFromId, assetId} from '../src/helpers'
 
 describe('Asset id', () => {

@@ -16,8 +16,7 @@ export const assetFromId = (id: string): Asset => {
   const policyId = policyIdBuffer.toString('hex')
   const assetName = id.slice(policyId.length)
 
-  // assuming assetName should have at least one character
-  if (policyIdBuffer.length !== POLICY_ID_SIZE || assetName.length === 0) {
+  if (policyIdBuffer.length !== POLICY_ID_SIZE) {
     throw new Error(`Couldn't decode asset id: ${id}`)
   }
 

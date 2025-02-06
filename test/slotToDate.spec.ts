@@ -1,5 +1,7 @@
-import {alonzoDateToSlotFactory, slotToDateFactory} from '@/helpers'
 import assert from 'assert'
+
+import {alonzoDateToSlotFactory, slotToDateFactory} from '@/helpers'
+
 import {NetworkName} from '../src/types'
 
 describe('SlotToDate', () => {

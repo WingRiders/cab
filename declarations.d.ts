@@ -55,7 +55,6 @@ declare module 'cardano-crypto.js' {
   export function hasSpendingScript(address: Buffer): boolean
 
   export function getShelleyAddressNetworkId(address: Buffer): number
-  export function getBootstrapAddressAttributes(address: Buffer): Map
 
   export function decodePaperWalletMnemonic(paperWalletMnemonic: string): Buffer
   export function mnemonicToRootKeypair(mnemonic: string, derivationScheme: number): Promise<Buffer>
@@ -66,13 +65,6 @@ declare module 'cardano-crypto.js' {
   export function scrypt(password: Buffer, salt: Buffer, options: any, callback: (string) => any): void
 
   export function cardanoMemoryCombine(input: Buffer, password: string): Buffer
-  export function packBootstrapAddress(
-    derivationPath: number[],
-    xpub: Buffer,
-    hdPassphrase: Buffer | void,
-    derivationScheme: number,
-    protocolMagic: number
-  ): Buffer
 
   export function sign(msg: Buffer, walletSecret: Buffer): Buffer
 

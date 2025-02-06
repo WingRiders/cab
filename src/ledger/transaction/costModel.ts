@@ -2,12 +2,7 @@ import {encode} from 'borc'
 
 import {CborIndefiniteLengthArray} from '@/ledger/transaction/cbor/CborIndefiniteLengthArray'
 import {ProtocolParameters} from '@/types/protocolParameters'
-import {Language} from '@/types/transaction'
-
-const LANGUAGE_MAPPING = {
-  [Language.PLUTUSV1]: 'plutus:v1' as const,
-  [Language.PLUTUSV2]: 'plutus:v2' as const,
-}
+import {Language, LANGUAGE_TO_SCRIPT_LANGUAGE_TAG} from '@/types/transaction'
 
 // ; For PlutusV1 (language id 0), the language view is the following:
 // ;   - the value of costmdls map at key 0 (in other words, the script_integrity_data)
@@ -30,14 +25,12 @@ const LANGUAGE_MAPPING = {
 // ;     01 in hex.
 export const encodeCostModels = (
   languages: Language[],
-  costModels: ProtocolParameters['costModels']
+  costModels: ProtocolParameters['plutusCostModels']
 ) => {
   const models: [Buffer | number, Buffer | number[]][] = languages
-    .filter((lang) => LANGUAGE_MAPPING[lang] in costModels)
+    .filter((lang) => LANGUAGE_TO_SCRIPT_LANGUAGE_TAG[lang] in costModels)
     .map((lang) => {
-      const params = Array.from(Object.entries(costModels[LANGUAGE_MAPPING[lang]]))
-        .sort((a, b) => Buffer.from(a[0]).compare(Buffer.from(b[0])))
-        .map((entry) => entry[1])
+      const params = costModels[LANGUAGE_TO_SCRIPT_LANGUAGE_TAG[lang]]
       return [
         lang === Language.PLUTUSV1 ? encode(lang) : lang,
         lang === Language.PLUTUSV1 ? encode(new CborIndefiniteLengthArray(params)) : params,

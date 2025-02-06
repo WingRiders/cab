@@ -121,8 +121,7 @@ export interface CborAPI {
    * @returns partial transaction witness set, only the added parts
    *   cddl relevant parts:
    *     transaction_witness_set = {
-   *       ? 0: [* vkeywitness ],
-   *       ? 2: [* bootstrap_witness ]
+   *       ? 0: [* vkeywitness ]
    *     }
    * @throws APIError, TxSignError
    */

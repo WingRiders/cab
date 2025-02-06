@@ -1,26 +1,21 @@
-import {Tagged} from 'borc'
-import {base58, bech32} from 'cardano-crypto.js'
+import {bech32} from 'cardano-crypto.js'
 import {compact, partition} from 'lodash'
 import sortBy from 'lodash/sortBy'
 
 import * as api from '@/dappConnector'
 import {AdaAssetName, AdaPolicyId} from '@/dappConnector'
 import {UnexpectedError, UnexpectedErrorReason} from '@/errors'
-import {ipv4AddressToBuf, ipv6AddressToBuf} from '@/helpers/ipHelpers'
-import {isShelleyFormat} from '@/ledger/address/addressHelpers'
+import {addressToBuffer} from '@/ledger/address/addressHelpers'
 import {orderTokenBundle} from '@/ledger/assets/tokenFormatter'
 import {AddrKeyHash} from '@/types/address'
-import {Lovelace, TokenBundle} from '@/types/base'
-import {TxRelayType} from '@/types/stakepool'
+import {Address, Lovelace, TokenBundle} from '@/types/base'
 import {
   Language,
-  TxByronWitness,
   TxCertificate,
   TxCertificateType,
   TxDatum,
   TxDatumOption,
   TxDatumOptionType,
-  TxDelegationCert,
   TxInput,
   TxInputRef,
   TxOutput,
@@ -29,9 +24,10 @@ import {
   TxRedeemerTag,
   TxScriptSource,
   TxShelleyWitness,
-  TxStakepoolRegistrationCert,
-  TxStakingKeyDeregistrationCert,
-  TxStakingKeyRegistrationCert,
+  TxStakeDelegationCert,
+  TxStakeDeregistrationCert,
+  TxStakeRegistrationCert,
+  TxVoteDelegationCert,
   TxWithdrawal,
 } from '@/types/transaction'
 
@@ -40,21 +36,21 @@ import {
   CborizedDatumOption,
   CborizedPubKeyHash,
   CborizedTxCertificate,
-  CborizedTxDelegationCert,
   CborizedTxInput,
   CborizedTxOutput,
   CborizedTxRedeemer,
   CborizedTxScript,
   CborizedTxStakeCredential,
-  CborizedTxStakepoolRegistrationCert,
-  CborizedTxStakingKeyDeregistrationCert,
-  CborizedTxStakingKeyRegistrationCert,
+  CborizedTxStakeDelegationCert,
+  CborizedTxStakeDeregistrationCert,
+  CborizedTxStakeRegistrationCert,
   CborizedTxTokenBundle,
   CborizedTxValue,
+  CborizedTxVoteDelegationCert,
   CborizedTxWithdrawals,
-  CborizedTxWitnessByron,
   CborizedTxWitnesses,
   CborizedTxWitnessShelley,
+  DRepType,
   TxCertificateKey,
   TxOutputKey,
   TxStakeCredentialType,
@@ -104,10 +100,7 @@ export function cborizeTxValue(coins: Lovelace, tokenBundle: TokenBundle = []): 
 
 export function cborizeSingleTxOutput(output: TxOutput): CborizedTxOutput {
   const value = cborizeTxValue(output.coins, output.tokenBundle)
-  // TODO: we should have one fn for decoding
-  const addressBuff: Buffer = isShelleyFormat(output.address)
-    ? bech32.decode(output.address).data
-    : base58.decode(output.address)
+  const addressBuff: Buffer = addressToBuffer(output.address)
   if (output.type === TxOutputType.LEGACY) {
     return output.datumHash
       ? [addressBuff, value, Buffer.from(output.datumHash, 'hex')]
@@ -135,88 +128,55 @@ export function cborizeRequiredSigners(signers: AddrKeyHash[]): CborizedPubKeyHa
   return txSigners
 }
 
-function cborizeStakingKeyRegistrationCert(
-  certificate: TxStakingKeyRegistrationCert
-): CborizedTxStakingKeyRegistrationCert {
-  const stakingKeyHash: Buffer = bech32.decode(certificate.stakingAddress).data.slice(1)
-  const stakeCredential: CborizedTxStakeCredential = [TxStakeCredentialType.ADDR_KEYHASH, stakingKeyHash]
-  return [TxCertificateKey.STAKING_KEY_REGISTRATION, stakeCredential]
+const cborizeStakeCredential = (stakingAddress: Address): CborizedTxStakeCredential => {
+  const stakingKeyHash: Buffer = bech32.decode(stakingAddress).data.slice(1)
+  return [TxStakeCredentialType.ADDR_KEYHASH, stakingKeyHash]
 }
 
-function cborizeStakingKeyDeregistrationCert(
-  certificate: TxStakingKeyDeregistrationCert
-): CborizedTxStakingKeyDeregistrationCert {
-  const stakingKeyHash: Buffer = bech32.decode(certificate.stakingAddress).data.slice(1)
-  const stakeCredential: CborizedTxStakeCredential = [TxStakeCredentialType.ADDR_KEYHASH, stakingKeyHash]
-  return [TxCertificateKey.STAKING_KEY_DEREGISTRATION, stakeCredential]
-}
+const cborizeStakeRegistrationCert = ({
+  stakingAddress,
+}: TxStakeRegistrationCert): CborizedTxStakeRegistrationCert => [
+  TxCertificateKey.STAKE_REGISTRATION,
+  cborizeStakeCredential(stakingAddress),
+]
 
-function cborizeDelegationCert(certificate: TxDelegationCert): CborizedTxDelegationCert {
-  const stakingKeyHash: Buffer = bech32.decode(certificate.stakingAddress).data.slice(1)
-  const stakeCredential: CborizedTxStakeCredential = [TxStakeCredentialType.ADDR_KEYHASH, stakingKeyHash]
+const cborizeStakeDeregistrationCert = ({
+  stakingAddress,
+}: TxStakeDeregistrationCert): CborizedTxStakeDeregistrationCert => [
+  TxCertificateKey.STAKE_DEREGISTRATION,
+  cborizeStakeCredential(stakingAddress),
+]
+
+const cborizeStakeDelegationCert = (
+  certificate: TxStakeDelegationCert
+): CborizedTxStakeDelegationCert => {
   const poolHash = Buffer.from(certificate.poolHash, 'hex')
-  return [TxCertificateKey.DELEGATION, stakeCredential, poolHash]
-}
-
-function cborizeStakepoolRegistrationCert(
-  certificate: TxStakepoolRegistrationCert
-): CborizedTxStakepoolRegistrationCert {
-  const {poolRegistrationParams} = certificate
   return [
-    TxCertificateKey.STAKEPOOL_REGISTRATION,
-    Buffer.from(poolRegistrationParams.poolKeyHashHex, 'hex'),
-    Buffer.from(poolRegistrationParams.vrfKeyHashHex, 'hex'),
-    new CborInt64(poolRegistrationParams.pledgeStr),
-    new CborInt64(poolRegistrationParams.costStr),
-    new Tagged(
-      30,
-      [
-        parseInt(poolRegistrationParams.margin.numeratorStr, 10),
-        parseInt(poolRegistrationParams.margin.denominatorStr, 10),
-      ],
-      null
-    ),
-    Buffer.from(poolRegistrationParams.rewardAccountHex, 'hex'),
-    poolRegistrationParams.poolOwners.map((ownerObj) => {
-      return Buffer.from(ownerObj?.stakingKeyHashHex || '', 'hex')
-    }),
-    poolRegistrationParams.relays.map((relay) => {
-      switch (relay.type) {
-        case TxRelayType.SINGLE_HOST_IP:
-          return [
-            relay.type,
-            relay.params.portNumber,
-            relay.params.ipv4 ? ipv4AddressToBuf(relay.params.ipv4) : null,
-            relay.params.ipv6 ? ipv6AddressToBuf(relay.params.ipv6) : null,
-          ]
-        case TxRelayType.SINGLE_HOST_NAME:
-          return [relay.type, relay.params.portNumber, relay.params.dnsName]
-        case TxRelayType.MULTI_HOST_NAME:
-          return [relay.type, relay.params.dnsName]
-        default:
-          return []
-      }
-    }),
-    poolRegistrationParams.metadata
-      ? [
-          poolRegistrationParams.metadata.metadataUrl,
-          Buffer.from(poolRegistrationParams.metadata.metadataHashHex, 'hex'),
-        ]
-      : null,
+    TxCertificateKey.STAKE_DELEGATION,
+    cborizeStakeCredential(certificate.stakingAddress),
+    poolHash,
   ]
 }
+
+const cborizeVoteDelegationCert = ({
+  stakingAddress,
+}: TxVoteDelegationCert): CborizedTxVoteDelegationCert => [
+  TxCertificateKey.VOTE_DELEGATION,
+  cborizeStakeCredential(stakingAddress),
+  [DRepType.ALWAYS_ABSTAIN],
+]
 
 export function cborizeTxCertificates(certificates: TxCertificate[]): CborizedTxCertificate[] {
   const txCertificates = certificates.map((certificate) => {
     switch (certificate.type) {
-      case TxCertificateType.STAKING_KEY_REGISTRATION:
-        return cborizeStakingKeyRegistrationCert(certificate)
-      case TxCertificateType.STAKING_KEY_DEREGISTRATION:
-        return cborizeStakingKeyDeregistrationCert(certificate)
-      case TxCertificateType.DELEGATION:
-        return cborizeDelegationCert(certificate)
-      case TxCertificateType.STAKEPOOL_REGISTRATION:
-        return cborizeStakepoolRegistrationCert(certificate)
+      case TxCertificateType.STAKE_REGISTRATION:
+        return cborizeStakeRegistrationCert(certificate)
+      case TxCertificateType.STAKE_DEREGISTRATION:
+        return cborizeStakeDeregistrationCert(certificate)
+      case TxCertificateType.STAKE_DELEGATION:
+        return cborizeStakeDelegationCert(certificate)
+      case TxCertificateType.VOTE_DELEGATION:
+        return cborizeVoteDelegationCert(certificate)
       default:
         throw new UnexpectedError(UnexpectedErrorReason.InvalidCertificateType)
     }
@@ -242,18 +202,6 @@ export function cborizeTxWitnessesShelley(
   return txWitnessesShelley
 }
 
-function cborizeTxWitnessesByron(byronWitnesses: TxByronWitness[]): CborizedTxWitnessByron[] {
-  const txWitnessesByron: CborizedTxWitnessByron[] = byronWitnesses.map(
-    ({publicKey, signature, chainCode, addressAttributes}) => [
-      publicKey,
-      signature,
-      chainCode,
-      addressAttributes,
-    ]
-  )
-  return txWitnessesByron
-}
-
 export function cborizeTxDatums(datums: TxDatum[]): CborizedTxDatum[] {
   const txDatums: CborizedTxDatum[] = datums.map((datum) => new CborizedTxDatum(datum))
   return txDatums
@@ -275,7 +223,7 @@ export function cborizeTxRedeemers(
   const multiAssets = cborizeTxOutputTokenBundle(mint, true)
   const txRedeemers: CborizedTxRedeemer[] = redeemers.map((redeemer) => {
     const datum = new CborizedTxDatum(redeemer.data)
-    const exUnits: [number, number] = [redeemer.exUnits.memory, redeemer.exUnits.steps]
+    const exUnits: [number, number] = [redeemer.exUnits.memory, redeemer.exUnits.cpu]
     switch (redeemer.tag) {
       case TxRedeemerTag.SPEND: {
         const txIndex = orderedInputs.findIndex(
@@ -315,7 +263,6 @@ export function cborizeTxScripts(scripts: TxScriptSource[]): CborizedTxScript[] 
 }
 
 type WitnessParams = {
-  byronWitnesses: TxByronWitness[]
   shelleyWitnesses: TxShelleyWitness[]
   scripts?: TxScriptSource[]
   datums?: TxDatum[]
@@ -325,7 +272,6 @@ type WitnessParams = {
 }
 
 export function cborizeTxWitnesses({
-  byronWitnesses,
   shelleyWitnesses,
   scripts,
   datums,
@@ -334,19 +280,17 @@ export function cborizeTxWitnesses({
   mint,
 }: WitnessParams): CborizedTxWitnesses {
   const txWitnesses: CborizedTxWitnesses = new Map()
-  if (byronWitnesses.length > 0) {
-    txWitnesses.set(TxWitnessKey.BYRON, cborizeTxWitnessesByron(byronWitnesses))
-  }
   if (shelleyWitnesses.length > 0) {
     txWitnesses.set(TxWitnessKey.SHELLEY, cborizeTxWitnessesShelley(shelleyWitnesses))
   }
   if (scripts && scripts.length > 0) {
-    const [v1, v2] = partition(scripts, (script) => script.language === Language.PLUTUSV1)
+    const nonReferenceScripts = scripts.filter((script) => !script.isReferenceScript)
+    const [v1, v2] = partition(nonReferenceScripts, (script) => script.language === Language.PLUTUSV1)
     if (v1.length > 0) {
-      txWitnesses.set(TxWitnessKey.SCRIPTS_V1, cborizeTxScripts(scripts))
+      txWitnesses.set(TxWitnessKey.SCRIPTS_V1, cborizeTxScripts(v1))
     }
     if (v2.length > 0) {
-      txWitnesses.set(TxWitnessKey.SCRIPTS_V2, cborizeTxScripts(scripts))
+      txWitnesses.set(TxWitnessKey.SCRIPTS_V2, cborizeTxScripts(v2))
     }
   }
   if (datums && datums.length > 0) {

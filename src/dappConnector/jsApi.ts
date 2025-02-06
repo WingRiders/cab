@@ -133,13 +133,6 @@ export type VKeyWitness = {
   signature: HexString
 }
 
-export type BootstrapWitness = {
-  publicKey: HexString // bytes
-  signature: HexString // bytes
-  chainCode: HexString // 32 bit bytes
-  addressAttributes: TODO
-}
-
 export type NativeScript = TODO
 
 export type PlutusScript = HexString & {__type: 'PlutusScript'}
@@ -194,7 +187,7 @@ export enum RedeemerTag {
 
 export type ExUnits = {
   mem: UInt
-  steps: UInt
+  cpu: UInt
 }
 
 export type Redeemer = {
@@ -207,7 +200,6 @@ export type Redeemer = {
 export type TxWitnessSet = {
   vKeyWitnesses?: VKeyWitness[]
   nativeScripts?: NativeScript[]
-  bootstrapWitness?: BootstrapWitness[]
   plutusV1Scripts?: PlutusScript[]
   plutusDatums?: PlutusDatum[]
   redeemers?: Redeemer[]

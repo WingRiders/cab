@@ -7,11 +7,18 @@ import type {
 
 import {CborToJsApiBridge} from './CborToJsApiBridge'
 import {EternlToJsApiBridge} from './EternlToJsApiBridge'
-import {NamiToJsApiBridge} from './NamiToJsApiBridge'
 import {addTimeouts, PreTimeout} from './timeout'
 import {TyphonToJsApiBridge} from './TyphonToJsApiBridge'
 import {YoroiToJsApiBridge} from './YoroiToJsApiBridge'
 
+export enum WalletApiVendor {
+  TYPHON = 'typhon',
+  YOROI = 'yoroi',
+  ETERNL = 'eternl',
+  WALLET_CONNECT = 'wc',
+  NUFI_SSO = 'nufiSSO',
+  NUFI_META_MASK_SNAP = 'nufiMetaMaskSnap',
+}
 /**
  * A thin wrapper around a standardized {@link WalletApi} that adds the method {@link enableJs}
  * which returns a compatibility layer between the wallet's {@link CborAPI} and our {@link JsAPI}.
@@ -21,26 +28,33 @@ export class CborToJsApiWalletConnector implements WalletApi {
   private cachedCborApiPromise?: Promise<CborAPI>
   private readonly config:
     | {
-        vendor: 'eternl'
+        vendor: WalletApiVendor.ETERNL
         cache: ReturnType<typeof EternlToJsApiBridge.createCache>
         cacheTtl: number
       }
     | {
-        vendor: 'nami' | 'typhon' | 'yoroi' | null
+        vendor:
+          | WalletApiVendor.TYPHON
+          | WalletApiVendor.YOROI
+          | WalletApiVendor.NUFI_SSO
+          | WalletApiVendor.NUFI_META_MASK_SNAP
+          | null
       }
     | {
-        vendor: 'wc'
+        vendor: WalletApiVendor.WALLET_CONNECT
         apiTimeoutMs: number
         apiPreTimeout?: PreTimeout
       }
 
   constructor(private wallet: StandardWalletApi, options: CborToJsApiWalletConnectorOptions) {
     this.config =
-      options.vendor === 'eternl' ? {...options, cache: EternlToJsApiBridge.createCache()} : options
+      options.vendor === WalletApiVendor.ETERNL
+        ? {...options, cache: EternlToJsApiBridge.createCache()}
+        : options
 
     this.experimental = {
       get feeAddress() {
-        return options.vendor === 'eternl' ? wallet.experimental?.feeAddress : undefined
+        return options.vendor === WalletApiVendor.ETERNL ? wallet.experimental?.feeAddress : undefined
       },
     }
   }
@@ -57,10 +71,17 @@ export class CborToJsApiWalletConnector implements WalletApi {
     return this.wallet.apiVersion
   }
 
+  get vendor(): WalletApiVendor | null {
+    return this.config.vendor
+  }
+
   // TODO add timeouts to all of these calls
   enable(): Promise<CborAPI> {
     const cborApiPromise = this.cachedCborApiPromise ?? this.wallet.enable()
-    if (this.config.vendor === 'eternl' || this.config.vendor === 'wc') {
+    if (
+      this.config.vendor === WalletApiVendor.ETERNL ||
+      this.config.vendor === WalletApiVendor.WALLET_CONNECT
+    ) {
       this.cachedCborApiPromise = cborApiPromise
     }
     return cborApiPromise
@@ -69,18 +90,16 @@ export class CborToJsApiWalletConnector implements WalletApi {
   async enableJs(): Promise<JsAPI> {
     const cborApi = await this.enable()
     switch (this.config.vendor) {
-      case 'eternl':
+      case WalletApiVendor.ETERNL:
         return new EternlToJsApiBridge(cborApi, this.config.cache, this.config.cacheTtl)
-      case 'nami':
-        return new NamiToJsApiBridge(cborApi)
-      case 'wc':
+      case WalletApiVendor.WALLET_CONNECT:
         return addTimeouts(new CborToJsApiBridge(cborApi), {
           timeoutMs: this.config.apiTimeoutMs,
           preTimeouts: this.config.apiPreTimeout && [this.config.apiPreTimeout],
         })
-      case 'typhon':
+      case WalletApiVendor.TYPHON:
         return new TyphonToJsApiBridge(cborApi)
-      case 'yoroi':
+      case WalletApiVendor.YOROI:
         return new YoroiToJsApiBridge(cborApi)
       default:
         return new CborToJsApiBridge(cborApi)
@@ -94,7 +113,7 @@ export class CborToJsApiWalletConnector implements WalletApi {
   invalidateCache(): void {
     this.cachedCborApiPromise = undefined
 
-    if (this.config.vendor === 'eternl') {
+    if (this.config.vendor === WalletApiVendor.ETERNL) {
       this.config.cache = EternlToJsApiBridge.createCache()
     }
   }
@@ -102,14 +121,19 @@ export class CborToJsApiWalletConnector implements WalletApi {
 
 export type CborToJsApiWalletConnectorOptions =
   | {
-      vendor: 'nami' | 'typhon' | 'yoroi' | null
+      vendor:
+        | WalletApiVendor.TYPHON
+        | WalletApiVendor.YOROI
+        | WalletApiVendor.NUFI_SSO
+        | WalletApiVendor.NUFI_META_MASK_SNAP
+        | null
     }
   | {
-      vendor: 'eternl'
+      vendor: WalletApiVendor.ETERNL
       cacheTtl: number
     }
   | {
-      vendor: 'wc'
+      vendor: WalletApiVendor.WALLET_CONNECT
       apiTimeoutMs: number
       apiPreTimeout?: PreTimeout
     }

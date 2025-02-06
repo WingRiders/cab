@@ -1,0 +1,24 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "outputs": [
+        "index.d.ts",
+        "index.d.ts.map",
+        "account/**",
+        "constants/**",
+        "crypto/**",
+        "dappConnector/**",
+        "dataProvider/**",
+        "dist/**",
+        "errors/**",
+        "helpers/**",
+        "ledger/**",
+        "logger/**",
+        "tokenMetadata/**",
+        "types/**",
+        "wallet/**"
+      ]
+    }
+  }
+}

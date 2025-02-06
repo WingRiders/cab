@@ -1,8 +1,9 @@
+import {ExecutionUnits} from '@cardano-ogmios/schema'
 import {encode} from 'borc'
-import {blake2b} from 'cardano-crypto.js'
-import {uniq} from 'lodash'
+import {sum, uniq} from 'lodash'
 
-import {bech32Encode} from '@/helpers'
+import {bech32Encode} from '@/helpers/bech32'
+import {blake2b} from '@/helpers/blake2b'
 import {fromFraction} from '@/helpers/fromFraction'
 import {aggregateTokenBundles} from '@/ledger/assets/tokenFormatter'
 import {GenericOutput, TxPlan} from '@/types'
@@ -13,7 +14,6 @@ import {
   TxCertificate,
   TxCertificateType,
   TxDatum,
-  TxExUnits,
   TxInput,
   TxInputRef,
   TxOutput,
@@ -63,34 +63,34 @@ export const computeValueSize = (multiasset: TokenBundle = []) => {
   return 6 + roundupBytesToWords(numAssets * 12 + sumAssetNameLengths + numPIDs * policyIdSize)
 }
 
-// minUTxOValue(output) =  |serialise(output)| * coinsPerUTxOByte
+// minUTxOValue(output) =  |serialise(output)| * minUtxoDepositCoefficient
 export function computeMinUTxOLovelaceAmount({
-  protocolParameters,
+  minUtxoDepositCoefficient,
   output,
 }: {
-  protocolParameters: ProtocolParameters
+  minUtxoDepositCoefficient: number
   output: TxOutput
 }): Lovelace {
   const cborOutput = encode(cborizeSingleTxOutput(output))
 
   // Formal specification states this formula to calculate he min UTxO lovelace is:
-  // (serSize txout + 160) ∗ coinsPerUTxOByte pp
+  // (serSize txout + 160) ∗ minUtxoDepositCoefficient pp
   //
   // From https://cips.cardano.org/cips/cip55/#thenewminimumlovelacecalculation:
   // In the Babbage era, unspent transaction outputs will be required to contain at least
-  // (160 + |serialized_output|) * coinsPerUTxOByte
+  // (160 + |serialized_output|) * minUtxoDepositCoefficient
   // many lovelace. The constant overhead of 160 bytes accounts for the transaction input
   // and the entry in the UTxO map data structure (20 words * 8 bytes).
   const calculatedCoins = new Lovelace(cborOutput.byteLength)
     .plus(160)
-    .times(protocolParameters.coinsPerUtxoByte) as Lovelace
+    .times(minUtxoDepositCoefficient) as Lovelace
   if (calculatedCoins.gt(output.coins)) {
     // If output.coins changes, the CBOR length of TxOutput also changes, so we need to recalculate the coins needed.
     // The recursion will end at the moment cborOutput.byteLength won't increase
     // and that will eventually always happen, because every time calculatedCoins increases,
     // the next increase is smaller (roughly base-2 logarithm of the previous increase).
     return computeMinUTxOLovelaceAmount({
-      protocolParameters,
+      minUtxoDepositCoefficient,
       output: {
         ...output,
         coins: calculatedCoins,
@@ -104,46 +104,75 @@ export function txFeeForBytes(txSizeInBytes: number, txFeePerByte: number) {
   return new Lovelace(txSizeInBytes).times(txFeePerByte) as Lovelace
 }
 
-function pricesToNumbers(prices: ProtocolParameters['prices']): {
+function pricesToNumbers(prices: ProtocolParameters['scriptExecutionPrices']): {
   memory: BigNumber
-  steps: BigNumber
+  cpu: BigNumber
 } {
-  if (!prices) {
-    return {
-      memory: new BigNumber(0),
-      steps: new BigNumber(0),
-    }
-  }
-
   return {
     memory: fromFraction(prices.memory),
-    steps: fromFraction(prices.steps),
+    cpu: fromFraction(prices.cpu),
   }
+}
+
+export const computeFeeForRefScripts = (
+  refScriptsSizeInBytes: number,
+  params: ProtocolParameters['minFeeReferenceScripts']
+) => {
+  if (params == null) return 0 // We are not in Conway era
+  const sizeRange = Math.floor(refScriptsSizeInBytes / params.range)
+
+  // We need BigNumbers, because Math.pow(1.2, 7) = 3.583180799999 instead of 3.5831808
+  const feeForPreviousRanges =
+    sizeRange === 0
+      ? new BigNumber(0)
+      : new BigNumber(params.range)
+          .times(
+            BigNumber.sum(
+              ...[...Array(sizeRange).keys()].map((i) =>
+                new BigNumber(params.multiplier).pow(i).times(params.base)
+              )
+            )
+          )
+          .integerValue(BigNumber.ROUND_FLOOR)
+  const partInTheLastRange = refScriptsSizeInBytes % params.range
+  const feeForLastRange = new BigNumber(params.multiplier)
+    .pow(sizeRange)
+    .times(params.base)
+    .times(partInTheLastRange)
+    .integerValue(BigNumber.ROUND_FLOOR)
+  return feeForPreviousRanges.plus(feeForLastRange).toNumber()
 }
 
 export function txFeeFunction(
   txSizeInBytes: number,
-  pParams: ProtocolParameters,
-  exUnits: TxExUnits[] = []
+  refScriptsSizeInBytes: number,
+  pParams: Pick<
+    ProtocolParameters,
+    'scriptExecutionPrices' | 'minFeeCoefficient' | 'minFeeConstant' | 'minFeeReferenceScripts'
+  >,
+  exUnits: ExecutionUnits[] = []
 ): Lovelace {
-  const executionUnitPrices = pricesToNumbers(pParams.prices)
+  const executionUnitPrices = pricesToNumbers(pParams.scriptExecutionPrices)
   const scriptFees = exUnits.reduce(
     (acc, exUnit) =>
       acc
         .plus(executionUnitPrices.memory.times(exUnit.memory))
-        .plus(executionUnitPrices.steps.times(exUnit.steps)),
+        .plus(executionUnitPrices.cpu.times(exUnit.cpu)),
     new Lovelace(0)
   )
-  return new Lovelace(pParams.minFeeConstant)
+  const refScriptFees =
+    pParams.minFeeReferenceScripts != null
+      ? computeFeeForRefScripts(refScriptsSizeInBytes, pParams.minFeeReferenceScripts)
+      : 0
+  return new Lovelace(`${pParams.minFeeConstant.ada.lovelace}`)
     .plus(txFeeForBytes(txSizeInBytes, pParams.minFeeCoefficient))
     .plus(scriptFees)
+    .plus(refScriptFees)
     .integerValue(Lovelace.ROUND_CEIL) as Lovelace
 }
 
-export function computeAdditionalCollateralFee(pParams: ProtocolParameters, initial = false): Lovelace {
-  return new Lovelace(pParams.minFeeCoefficient).times(
-    estimateAdditionalCollateralSize(initial)
-  ) as Lovelace
+export function computeAdditionalCollateralFee(minFeeCoefficient: number, initial = false): Lovelace {
+  return new Lovelace(minFeeCoefficient).times(estimateAdditionalCollateralSize(initial)) as Lovelace
 }
 
 type ComputeTxFeeParams = {
@@ -158,7 +187,16 @@ type ComputeTxFeeParams = {
   scripts?: Array<TxScriptSource>
   mint?: TokenBundle
   requiredSigners?: Array<AddrKeyHash>
-  protocolParameters: ProtocolParameters
+  protocolParameters: Pick<
+    ProtocolParameters,
+    | 'minUtxoDepositCoefficient'
+    | 'collateralPercentage'
+    | 'stakeCredentialDeposit'
+    | 'scriptExecutionPrices'
+    | 'minFeeCoefficient'
+    | 'minFeeConstant'
+    | 'minFeeReferenceScripts'
+  >
   metadata?: TxPlanMetadata
 }
 
@@ -192,6 +230,10 @@ export function computeRequiredTxFee({
       requiredSigners,
       metadata,
     }),
+    sum([
+      ...scripts.map((script) => (script.isReferenceScript ? script.scriptSize : 0)),
+      ...inputs.map(({inlineScript}) => inlineScript?.bytes?.length ?? 0),
+    ]),
     protocolParameters,
     redeemers.map((redeemer) => redeemer.exUnits)
   )
@@ -200,14 +242,14 @@ export function computeRequiredTxFee({
 
 export function computeRequiredDeposit(
   certificates: Array<TxCertificate>,
-  protocolParameters: ProtocolParameters
+  stakeKeyDeposit: number
 ): Lovelace {
   // TODO: this to network config
   const CertificateDeposit: {[key in TxCertificateType]: number} = {
-    [TxCertificateType.DELEGATION]: 0,
-    [TxCertificateType.STAKEPOOL_REGISTRATION]: protocolParameters.poolDeposit,
-    [TxCertificateType.STAKING_KEY_REGISTRATION]: protocolParameters.stakeKeyDeposit,
-    [TxCertificateType.STAKING_KEY_DEREGISTRATION]: -protocolParameters.stakeKeyDeposit,
+    [TxCertificateType.STAKE_DELEGATION]: 0,
+    [TxCertificateType.STAKE_REGISTRATION]: stakeKeyDeposit,
+    [TxCertificateType.STAKE_DEREGISTRATION]: -stakeKeyDeposit,
+    [TxCertificateType.VOTE_DELEGATION]: 0,
   }
   return certificates.reduce(
     (acc, {type}) => acc.plus(CertificateDeposit[type]),
@@ -219,12 +261,12 @@ export const createTokenChangeOutputs = ({
   changeAddress,
   changeTokenBundle,
   maxOutputTokens,
-  protocolParameters,
+  minUtxoDepositCoefficient,
 }: {
   changeAddress: Address
   changeTokenBundle: TokenBundle
   maxOutputTokens: number
-  protocolParameters: ProtocolParameters
+  minUtxoDepositCoefficient: number
 }): TxOutput[] => {
   const nOutputs = Math.ceil(changeTokenBundle.length / maxOutputTokens)
   const outputs: TxOutput[] = []
@@ -239,7 +281,10 @@ export const createTokenChangeOutputs = ({
     }
     outputs.push({
       ...output,
-      coins: computeMinUTxOLovelaceAmount({protocolParameters, output}),
+      coins: computeMinUTxOLovelaceAmount({
+        minUtxoDepositCoefficient,
+        output,
+      }),
     })
   }
   return outputs

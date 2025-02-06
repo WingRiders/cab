@@ -1,7 +1,7 @@
 import {flatten, isEqual, isNil, uniqBy, uniqWith} from 'lodash'
 
 import {CabInternalErrorReason} from '@/errors'
-import {optionalFields} from '@/helpers'
+import {optionalFields} from '@/helpers/optionalFields'
 import {aggregateTokenBundles} from '@/ledger/assets'
 import {getLogger} from '@/logger'
 import {Address, BigNumber, Lovelace, ZeroLovelace} from '@/types/base'
@@ -67,7 +67,7 @@ const prepareTxPlanDraft = (txPlanArgs: TxPlanArgs): TxPlanDraft => ({
           ...(!isNil(output.datum) ? {datumHash: hashDatum(output.datum)} : undefined),
         }
     const minCoins = computeMinUTxOLovelaceAmount({
-      protocolParameters: txPlanArgs.protocolParameters,
+      minUtxoDepositCoefficient: txPlanArgs.protocolParameters.minUtxoDepositCoefficient,
       output: draftOutput,
     })
 
@@ -126,6 +126,7 @@ const prepareTxPlanDraft = (txPlanArgs: TxPlanArgs): TxPlanDraft => ({
           ({
             ...referenceScript,
             isReferenceScript: true,
+            scriptSize: referenceScript.size,
           } as TxScriptSource)
       ),
     ]),
@@ -256,8 +257,7 @@ export const prepareTxAux = (
     scriptIntegrity: computeScriptIntegrity(txPlan),
 
     // metadata
-    auxiliaryDataHash: metadata ? hashSerialized(metadata) : '', // precompute hash without voting data
-    votingData: txPlan.metadata?.votingData, // voting data specifically handled
+    auxiliaryDataHash: metadata ? hashSerialized(metadata) : '',
     metadata,
   })
 }

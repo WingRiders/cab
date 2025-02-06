@@ -1,15 +1,16 @@
+import {ExecutionUnits} from '@cardano-ogmios/schema'
 import {BigNumber} from 'bignumber.js'
 import {compact, findIndex, keys, sortBy, uniq} from 'lodash'
 
+import {AddressWithMeta} from '@/account'
 import * as api from '@/dappConnector'
 import {UnexpectedError, UnexpectedErrorReason} from '@/errors'
 import {isAda, optionalFields} from '@/helpers'
 import {addressToHex} from '@/ledger/address'
 import {orderTokenBundle} from '@/ledger/assets'
-import {hashDatum, TxAux} from '@/ledger/transaction'
+import {hashDatum, matchTxInputRef, TxAux} from '@/ledger/transaction'
 import {toType} from '@/ledger/transaction/cbor/cborTypes'
 import * as cab from '@/types'
-import {AddressWithMeta} from '@/types/wallet'
 
 export function normalizeValue<T extends BigNumber>(
   value: cab.Value,
@@ -202,10 +203,10 @@ export function normalizeDatum(datum: cab.TxDatum): api.PlutusDatum {
   }
 }
 
-export function normalizeExUnits(exUnits: cab.TxExUnits): api.ExUnits {
+export function normalizeExUnits(exUnits: ExecutionUnits): api.ExUnits {
   return {
     mem: new BigNumber(exUnits.memory) as api.UInt,
-    steps: new BigNumber(exUnits.steps) as api.UInt,
+    cpu: new BigNumber(exUnits.cpu) as api.UInt,
   }
 }
 
@@ -217,15 +218,6 @@ export function normalizeWitnessSet(witnessSet: cab.TxWitnessSet, txAux: TxAux):
       publicKey: publicKey.toString('hex') as api.HexString,
       signature: signature.toString('hex') as api.HexString,
     })),
-
-    bootstrapWitness: witnessSet.bootstrapWitnesses?.map(
-      ({publicKey, signature, chainCode, addressAttributes}) => ({
-        publicKey: publicKey.toString('hex') as api.HexString,
-        signature: signature.toString('hex') as api.HexString,
-        chainCode: chainCode.toString('hex') as api.HexString,
-        addressAttributes,
-      })
-    ),
 
     plutusV1Scripts: compact(
       witnessSet.plutusScripts
@@ -253,11 +245,7 @@ export function normalizeWitnessSet(witnessSet: cab.TxWitnessSet, txAux: TxAux):
       let index: number
       switch (redeemer.tag) {
         case cab.TxRedeemerTag.SPEND:
-          index = findIndex(
-            orderedInputs,
-            (utxo) =>
-              utxo.txHash === redeemer.ref.txHash && utxo.outputIndex === redeemer.ref.outputIndex
-          )
+          index = findIndex(orderedInputs, matchTxInputRef(redeemer.ref))
           break
         case cab.TxRedeemerTag.MINT:
           index = findIndex(orderedPolicies, (policyId) => policyId === redeemer.ref.policyId)
@@ -313,15 +301,13 @@ export function normalizeTx(txAux: TxAux, witnessSet: cab.TxWitnessSet): api.Tra
           ? new Set(txAux.requiredSigners as unknown as api.AddressKeyHash[])
           : undefined,
         networkId:
-          typeof txAux.networkId !== undefined
+          typeof txAux.networkId !== 'undefined'
             ? (txAux.networkId as number as api.NetworkId)
             : undefined,
       }),
     },
     isValid: true,
     witnessSet: normalizeWitnessSet(witnessSet, txAux),
-    // TODO currently no support for catalyst voting data
-    // the metadatum types are compatible for now
     auxiliaryData: txAux.metadata as unknown as api.AuxiliaryData,
   }
 }

@@ -126,13 +126,13 @@ export class JsApi implements api.JsAPI {
     }
     const witnessSet = normalizeWitnessSet(await this.account.witnessTxAux(txAux), txAux)
     // only return signatures
-    const signatures = pick(witnessSet, ['vKeyWitnesses', 'bootstrapWitness'])
+    const signatures = pick(witnessSet, ['vKeyWitnesses'])
     return signatures
   }
 
-  signData(_address: api.Address, _data: api.HexString): Promise<api.DataSignature> {
+  signData(address: api.Address, data: api.HexString): Promise<api.DataSignature> {
     this.assertState()
-    throw new ApiError(api.APIErrorCode.InternalError, 'Method not implemented.')
+    return this.account.signData(address, data)
   }
 
   submitTx(_tx: api.Transaction): Promise<api.TxHash> {
@@ -143,8 +143,8 @@ export class JsApi implements api.JsAPI {
   async submitRawTx(tx: api.HexString, txHash: api.TxHash): Promise<api.TxHash> {
     this.assertState()
     try {
-      const submission = await this.wallet.submitTx({txBody: tx, txHash})
-      return submission.txHash as api.TxHash
+      await this.wallet.submitTx(tx)
+      return txHash as api.TxHash
     } catch (err) {
       throw new ApiError(api.APIErrorCode.InternalError, err.message)
     }

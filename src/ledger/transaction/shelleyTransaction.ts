@@ -4,7 +4,6 @@ import {sortBy, uniq} from 'lodash'
 import {HexString} from '@/types/base'
 import {
   Language,
-  TxByronWitness,
   TxDatum,
   TxMintRedeemer,
   TxRedeemer,
@@ -30,7 +29,6 @@ import {
   CborizedTxRedeemer,
   CborizedTxScript,
   CborizedTxStructured,
-  CborizedTxWitnessByron,
   CborizedTxWitnesses,
   CborizedTxWitnessShelley,
   TxAux,
@@ -97,7 +95,6 @@ export class ShelleyTxAux {
 
 export function signedTransaction(txAux: TxAux, witnessSet: TxWitnessSet): TxSigned {
   const cborizedWitnessSet = cborizeTxWitnesses({
-    byronWitnesses: witnessSet.bootstrapWitnesses || [],
     shelleyWitnesses: witnessSet.vKeyWitnesses || [],
     scripts: witnessSet.plutusScripts,
     datums: witnessSet.plutusDatums,
@@ -139,14 +136,6 @@ export function ShelleyTransactionStructured(
           signature: shelleyWitness[1],
         })
       ),
-      bootstrapWitnesses: txWitnesses.get(TxWitnessKey.BYRON)?.map(
-        (byronWitness: CborizedTxWitnessByron): TxByronWitness => ({
-          publicKey: byronWitness[0],
-          signature: byronWitness[1],
-          chainCode: byronWitness[2],
-          addressAttributes: byronWitness[3],
-        })
-      ),
       plutusScripts:
         txWitnesses.has(TxWitnessKey.SCRIPTS_V1) || txWitnesses.has(TxWitnessKey.SCRIPTS_V2)
           ? (
@@ -175,7 +164,7 @@ export function ShelleyTransactionStructured(
             tag,
             exUnits: {
               memory: exUnits[0],
-              steps: exUnits[1],
+              cpu: exUnits[1],
             },
             data: datum.data,
           }
@@ -218,9 +207,7 @@ export function cborizeCliWitness(txSigned: TxSigned): CborizedCliWitness {
   const [, witnesses]: [any, CborizedTxWitnesses] = cbor.decode(txSigned.txBody)
   // there can be only one witness since only one signing file was passed
   const witnessMap = new Map(witnesses)
-  if (witnessMap.has(TxWitnessKey.BYRON)) {
-    return [TxWitnessKey.BYRON, (witnessMap.get(TxWitnessKey.BYRON) as CborizedTxWitnessByron[])[0]]
-  } else if (witnessMap.has(TxWitnessKey.SHELLEY)) {
+  if (witnessMap.has(TxWitnessKey.SHELLEY)) {
     return [
       TxWitnessKey.SHELLEY,
       (witnessMap.get(TxWitnessKey.SHELLEY) as CborizedTxWitnessShelley[])[0],

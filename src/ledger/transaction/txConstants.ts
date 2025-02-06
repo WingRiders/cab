@@ -14,9 +14,10 @@ export const METADATA_HASH_BYTE_LENGTH = 32
 export const INTEGRITY_HASH_BYTE_LENGTH = 32
 
 export const TX_WITNESS_SIZES = {
-  byronv2: 139,
+  /**
+   * [ $vkey, $signature ]
+   * $vkey /= bytes .size 32
+   * $signature /= bytes .size 64
+   */
   shelley: 139, //TODO: this is too much
-  byronV1: 170,
 }
-
-export const CATALYST_SIGNATURE_BYTE_LENGTH = 64

@@ -1,10 +1,12 @@
-import {parseUtxo, parseValue, parseVKeyWitnesses} from '@/wallet/connector/parse'
-import {decode} from 'borc'
 import assert, {AssertionError, deepStrictEqual, strictEqual} from 'assert'
-import * as api from '@/dappConnector'
 import BigNumber from 'bignumber.js'
+import {decode} from 'borc'
+
+import * as api from '@/dappConnector'
+import {TxOutputType} from '@/dappConnector'
+import {adaToLovelace} from '@/helpers'
 import {TxWitnessKey} from '@/ledger/transaction'
-import {adaToLovelace} from '../src/helpers'
+import {parseUtxo, parseValue, parseVKeyWitnesses} from '@/wallet/connector/parse'
 
 function assertIsDefined<T>(val: T): asserts val is T extends undefined ? never : T {
   if (val === undefined) {
@@ -47,7 +49,8 @@ describe('Parse', () => {
     assert(txInput.index.eq(expected.txInput.index), 'indices not equal')
     strictEqual(txOutput.address, expected.txOutput.address)
     assertValuesEqual(txOutput.value, expected.txOutput.value)
-    strictEqual(txOutput.datumHash, expected.txOutput.datumHash)
+    assert(txOutput.type === TxOutputType.LEGACY)
+    strictEqual(txOutput.datumHash, undefined)
   })
 
   it('vkey witnesses', () => {

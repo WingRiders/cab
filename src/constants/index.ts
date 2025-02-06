@@ -11,17 +11,13 @@ export const MIN_INT64 = new BigNumber('-9223372036854775808')
 export const DEFAULT_TTL_SLOTS = 3600 // 1 hours
 
 export const MAX_ACCOUNT_INDEX = 30
-export const DEFAULT_GAP_LIMIT = 20
-
-export const MAX_UTXO_CHUNK_SIZE = 50
 
 export const DELAY_AFTER_TOO_MANY_REQUESTS = 2000
-
-export const UNKNOWN_POOL_NAME = '<Unknown pool>'
 
 export {NETWORKS} from './networks'
 
 export const PAGINATION_LIMIT = 200
+export const MAX_URL_LENGTH = 2048
 
 export const MAX_ADDRESS_SUMMARY_COUNT = 50
 export const MAX_FETCHABLE_SHELLEY_ADDRESSES = 20
@@ -51,11 +47,6 @@ export const TREZOR_VERSIONS: {[key: number]: CryptoProviderVersion} = {
     major: 2,
     minor: 3,
     patch: 5,
-  },
-  [CryptoProviderFeature.VOTING]: {
-    major: 2,
-    minor: 4,
-    patch: 0,
   },
   [CryptoProviderFeature.MINTING]: {
     major: 2,
@@ -94,11 +85,6 @@ export const LEDGER_VERSIONS: {[key: number]: CryptoProviderVersion} = {
     major: 2,
     minor: 2,
     patch: 0,
-  },
-  [CryptoProviderFeature.VOTING]: {
-    major: 2,
-    minor: 3,
-    patch: 2,
   },
   [CryptoProviderFeature.MINTING]: {
     major: 3,

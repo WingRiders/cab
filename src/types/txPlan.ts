@@ -1,6 +1,7 @@
-import {AddrKeyHash, BIP32Path, ScriptHash} from './address'
+import {ProtocolParameters} from '@/types/protocolParameters'
+
+import {AddrKeyHash, ScriptHash} from './address'
 import {Address, HexString, Lovelace, TokenBundle} from './base'
-import {ProtocolParameters} from './protocolParameters'
 import {
   ReferenceScript,
   TxCertificate,
@@ -76,23 +77,7 @@ export type MintScript = {
 export enum TxPlanType {
   LOOSE,
   STRICT,
-  // babbage versions that support reference inputs
-  // and collateral output
-  LOOSE_BABBAGE,
-  STRICT_BABBAGE,
 }
-
-export type CatalystVotingRegistrationData = {
-  votingPubKey: string
-  stakePubKey: HexString
-  nonce: Number
-  rewardDestinationAddress: {
-    address: Address
-    stakingPath: BIP32Path
-  }
-}
-
-export type CatalystVotingSignature = HexString
 
 export type TxMessage = string[]
 
@@ -120,12 +105,6 @@ export type TxPlanMetadata = {
     version: number // 1 | 2
     data: TxNftMetadatum[]
   }
-
-  // catalyst voting
-  // the signature needs to be generated using the wallet
-  // and should only be set in the plan for estimations and testing
-  votingData?: CatalystVotingRegistrationData
-  votingSignature?: CatalystVotingSignature
 }
 
 export type TxPlanArgs = {
@@ -144,13 +123,27 @@ export type TxPlanArgs = {
   protocolParameters: ProtocolParameters
   metadata?: TxPlanMetadata
 
-  // collaterls
+  // collaterals
   potentialCollaterals?: UTxO[]
   collateralInputs?: UTxO[] // ada-only utxos
   // the collateral coins and token amounts will be automatically calculated
   // if not set an output will be created to the change address
   collateralOutput?: GenericOutput
 }
+
+type ProtocolParametersForTxBuilding = Pick<
+  ProtocolParameters,
+  | 'minUtxoDepositCoefficient'
+  | 'collateralPercentage'
+  | 'plutusCostModels'
+  | 'maxCollateralInputs'
+  | 'maxTransactionSize'
+  | 'minFeeCoefficient'
+  | 'minFeeConstant'
+  | 'minFeeReferenceScripts'
+  | 'scriptExecutionPrices'
+  | 'stakeCredentialDeposit'
+>
 
 export type TxPlanDraft = {
   inputs: TxInput[]
@@ -166,7 +159,7 @@ export type TxPlanDraft = {
   redeemers?: TxRedeemer[]
   planId?: string
   requiredSigners?: AddrKeyHash[]
-  protocolParameters: ProtocolParameters
+  protocolParameters: ProtocolParametersForTxBuilding
   metadata?: TxPlanMetadata
 }
 
@@ -177,6 +170,7 @@ export type TxPlanResult =
     }
   | {
       success: false
+      cause?: 'Overspent budget' | 'Deserialization failure'
       error: any
       estimatedFee: Lovelace
       deposit: Lovelace
@@ -210,7 +204,7 @@ export interface TxPlan {
   withdrawals: Array<TxWithdrawal>
   planId?: string
 
-  protocolParameters: ProtocolParameters
+  protocolParameters: ProtocolParametersForTxBuilding
   metadata?: TxPlanMetadata
 
   // TODO replace prepareTxAux validity interval

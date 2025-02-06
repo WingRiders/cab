@@ -70,11 +70,6 @@ This component should be separated to its own npm package. For now it's part
 of the Cardano Application Backend (dapp library) out of convenience and copied here,
 since for now the DEX dapp will be dynamically loaded.
 
-Nami also supports 2 callback interfaces that are not specified in the CIP standard:
-
-- onNetworkChange
-- onAccountChange
-
 According to the standard the Wallet API should throw an `APIError`
 with `AccountChanged` code instead of providing callbacks to these events.
 These callbacks might still be added if a good use-case comes up.

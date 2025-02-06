@@ -1,4 +1,4 @@
-export {sortUtxos} from './arrangeUtxos'
+export {matchTxInputRef, sortUtxos} from './arrangeUtxos'
 export {CborIndefiniteLengthArray} from './cbor/CborIndefiniteLengthArray'
 export {CborInt64} from './cbor/CborInt64'
 export {
@@ -18,8 +18,7 @@ export type {
 } from './cbor/cborizedTx'
 export {TxBodyKey, TxWitnessKey} from './cbor/cborizedTx'
 export {CborizedTxDatum} from './cbor/CborizedTxDatum'
-export {CborizedTxScriptRef} from './cbor/CborizedTxScriptRef'
-export {SORT_ORDER as CBOR_SORT_ORDER} from './cbor/cborTypes'
+export {ARRAY_ENCODING as CBOR_ARRAY_ENCODING, SORT_ORDER as CBOR_SORT_ORDER} from './cbor/cborTypes'
 export {encodeTxScript} from './cbor/utils'
 export {estimateTxSize} from './estimateSize'
 export {splitMetadatumString} from './metadata/encodeMetadata'
@@ -32,6 +31,7 @@ export {
 } from './shelleyTransaction'
 export {getTxPlan, prepareTxAux, prepareTxWitnessSet} from './transactionPlanner'
 export {
+  computeFeeForRefScripts,
   computeMinUTxOLovelaceAmount,
   computeRequiredTxFee,
   computeValueSize,

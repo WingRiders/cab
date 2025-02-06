@@ -8,6 +8,7 @@ type CacheOptions = {
   expiry: number // expired AFTER this timestamp
   maxEntries?: number // the cache would allow 2x this amount
   cacheObj: CacheObject
+  extendKey?: () => Hashable
 }
 
 const GC_TIMEOUT = 2000
@@ -38,9 +39,9 @@ const throttledGC = throttle((options: Pick<CacheOptions, 'maxEntries'>, cacheOb
 const callWithCache = <A extends Hashable[], R>(
   fn: (...args: A) => R,
   args: A,
-  {expiry, maxEntries, cacheObj}: CacheOptions
+  {expiry, maxEntries, cacheObj, extendKey}: CacheOptions
 ): R => {
-  const hash = hashArgs(args)
+  const hash = hashArgs([{args, ...(extendKey ? {e: extendKey()} : {})}])
   const now = Date.now()
 
   if (!cacheObj[hash] || cacheObj[hash].timestamp < now) {
@@ -70,24 +71,31 @@ const callWithCache = <A extends Hashable[], R>(
 export const cacheResults: CacheResultsFn =
   (opts, cacheObj = {}) =>
   (fn) => {
-    const {maxAge, maxEntries} = typeof opts !== 'number' ? opts : {maxAge: opts, maxEntries: undefined}
-    return (...args) => callWithCache(fn, args, {expiry: Date.now() + maxAge, maxEntries, cacheObj})
+    const {maxAge, maxEntries, extendKey} =
+      typeof opts !== 'number' ? opts : {maxAge: opts, maxEntries: undefined, extendKey: undefined}
+    return (...args) =>
+      callWithCache(fn, args, {expiry: Date.now() + maxAge, maxEntries, cacheObj, extendKey})
   }
 
 export const cacheResultsWithOptions: CacheResultsWithOptionsFn =
-  ({maxAge = Infinity, maxEntries} = {}, cacheObj = {}) =>
+  ({maxAge = Infinity, maxEntries, extendKey} = {}, cacheObj = {}) =>
   (fn) => {
     return ({expiry}) =>
       (...args) =>
-        callWithCache(fn, args, {expiry: Math.min(expiry, Date.now() + maxAge), maxEntries, cacheObj})
+        callWithCache(fn, args, {
+          expiry: Math.min(expiry, Date.now() + maxAge),
+          maxEntries,
+          cacheObj,
+          extendKey,
+        })
   }
 
 type CacheResultsFn = (
-  opts: {maxAge: number; maxEntries?: number} | /* deprecated */ number,
+  opts: {maxAge: number; maxEntries?: number; extendKey?: () => Hashable} | /* deprecated */ number,
   cacheObj?: CacheObject
 ) => <A extends Hashable[], R>(fn: (...args: A) => R) => (...args: A) => R
 
 type CacheResultsWithOptionsFn = (
-  opts?: {maxAge?: number; maxEntries?: number},
+  opts?: {maxAge?: number; maxEntries?: number; extendKey?: () => Hashable},
   cacheObj?: CacheObject
 ) => <A extends Hashable[], R>(fn: (...args: A) => R) => (opts: {expiry: number}) => (...args: A) => R

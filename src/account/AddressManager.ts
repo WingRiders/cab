@@ -1,262 +1,220 @@
-import {getAddressType} from 'cardano-crypto.js'
+import {range} from 'lodash'
 
 import {ICryptoProvider} from '@/crypto'
-import {UnexpectedError, UnexpectedErrorReason} from '@/errors'
+import {Address as HexAddress} from '@/dappConnector'
+import {DataProvider} from '@/dataProvider'
+import {baseAddressFromXpub, HARDENED_THRESHOLD, stakingAddressFromXpub} from '@/ledger/address'
 import {
   bechAddressToHex,
-  shelleyBaseAddressProvider,
-  spendingHashFromAddress,
-  stakingHashFromAddress,
-} from '@/ledger/address'
-import {
-  shelleyEnterpriseAddressProvider,
-  shelleyStakingAccountProvider,
-} from '@/ledger/address/shelleyAddressProvider'
-import {AddressTypes, BIP32Path, PubKeyHash, StakingHash} from '@/types/address'
-import {Address} from '@/types/base'
-import {IBlockchainExplorer} from '@/types/blockchainExplorer'
-import {
-  AddressProvider,
-  AddressToPathMapper,
-  AddressToPathMapping,
-  AddressWithMeta,
-} from '@/types/wallet'
+  enterpriseAddressFromXpub,
+  xpub2blake2b224Hash,
+} from '@/ledger/address/addressHelpers'
+import {Address, AddressToPathMapper, AddrKeyHash, BIP32Path} from '@/types'
 
-import {toBip32StringPath} from '../helpers'
+import {AddressesInfo, AddressWithMeta} from './addressesInfo'
 
-type AddressManagerParams = {
-  addressProvider: AddressProvider
-  gapLimit: number
-  blockchainExplorer: IBlockchainExplorer
+// https://cips.cardano.org/cip/CIP-1852
+enum Chain {
+  External = 0,
+  Internal = 1,
+  Staking = 2,
+  DRep = 3,
+  ConstitutionalCommitteeCold = 4,
+  ConstitutionalCommitteeHot = 5,
 }
 
 export class AddressManager {
-  addressProvider: AddressProvider
-  gapLimit: number
-  blockchainExplorer: IBlockchainExplorer
-  deriveAddressMemo: {[key: number]: {path: BIP32Path; address: Address}}
-  constructor({addressProvider, gapLimit, blockchainExplorer}: AddressManagerParams) {
-    this.addressProvider = addressProvider
-    this.gapLimit = gapLimit
-    this.blockchainExplorer = blockchainExplorer
-    this.deriveAddressMemo = {}
+  private gapLimit: number
+  private accountIndex: number
+  private cryptoProvider: ICryptoProvider
+  private dataProvider: DataProvider
+  private addrKeyHashes: Record<AddrKeyHash, BIP32Path>
+  private readonly stakeKeyHashesToDerive: number
 
-    if (!gapLimit) {
-      throw new UnexpectedError(UnexpectedErrorReason.ParamsValidationError, {
-        message: `Invalid gap limit: ${gapLimit}`,
-      })
-    }
-  }
+  // Bech32 representation of the addresses
+  private addresses: AddressesInfo
 
-  async _deriveAddress(index: number): Promise<Address> {
-    const memoKey = index
-
-    if (!this.deriveAddressMemo[memoKey]) {
-      this.deriveAddressMemo[memoKey] = await this.addressProvider(index)
-    }
-
-    return this.deriveAddressMemo[memoKey].address
-  }
-
-  async _deriveAddresses(beginIndex: number, endIndex: number): Promise<Address[]> {
-    const derivedAddresses: Address[] = []
-    for (let i = beginIndex; i < endIndex; i += 1) {
-      derivedAddresses.push(await this._deriveAddress(i))
-    }
-    return derivedAddresses
-  }
-
-  async discoverAddresses(): Promise<Address[]> {
-    let addresses: Address[] = []
-    let from = 0
-    let isGapBlock = false
-
-    while (!isGapBlock) {
-      const currentAddressBlock = await this._deriveAddresses(from, from + this.gapLimit)
-
-      isGapBlock = !(await this.blockchainExplorer.isSomeAddressUsed(currentAddressBlock))
-
-      addresses = isGapBlock && addresses.length > 0 ? addresses : addresses.concat(currentAddressBlock)
-      from += this.gapLimit
-    }
-
-    return addresses
-  }
-
-  // TODO(ppershing): we can probably get this info more easily
-  // just by testing filterUnusedAddresses() backend call
-
-  async discoverAddressesWithMeta(): Promise<AddressWithMeta[]> {
-    const addresses = await this.discoverAddresses()
-    const usedAddresses = await this.blockchainExplorer.filterUsedAddresses(addresses)
-
-    return addresses.map((address) => ({
-      address,
-      bip32StringPath: toBip32StringPath(this.getAddressToAbsPathMapping()[address]),
-      isUsed: usedAddresses.has(address),
-    }))
-  }
-
-  // this is supposed to return {[key: Address]: BIP32Path} but ts does support
-  // only strings and number as index signatures
-
-  getAddressToAbsPathMapping(): AddressToPathMapping {
-    const result = {}
-    Object.values(this.deriveAddressMemo).map((value) => {
-      result[value.address] = value.path
-    })
-
-    return result
-  }
-}
-
-type MyAddressesParams = {
-  accountIndex: number
-  cryptoProvider: ICryptoProvider
-  gapLimit: number
-  blockchainExplorer: IBlockchainExplorer
-}
-
-export class MyAddresses {
-  accountIndex: number
-  gapLimit: number
-  accountAddrManager: AddressManager
-  baseExtAddrManager: AddressManager
-  baseIntAddrManager: AddressManager
-  enterpriseExtAddrManager: AddressManager
-  enterpriseIntAddrManager: AddressManager
-  cryptoProvider: ICryptoProvider
-  blockchainExplorer: IBlockchainExplorer
-
-  constructor({accountIndex, cryptoProvider, gapLimit, blockchainExplorer}: MyAddressesParams) {
+  constructor({
+    accountIndex,
+    cryptoProvider,
+    dataProvider,
+    gapLimit = 20,
+    stakeKeyHashesToDerive,
+  }: {
+    accountIndex: number
+    cryptoProvider: ICryptoProvider
+    dataProvider: DataProvider
+    gapLimit: number
+    stakeKeyHashesToDerive: number
+  }) {
     this.accountIndex = accountIndex
     this.gapLimit = gapLimit
     this.cryptoProvider = cryptoProvider
-    this.blockchainExplorer = blockchainExplorer
-
-    this.accountAddrManager = new AddressManager({
-      addressProvider: shelleyStakingAccountProvider(cryptoProvider, accountIndex),
-      gapLimit,
-      blockchainExplorer,
-    })
-
-    this.baseExtAddrManager = new AddressManager({
-      addressProvider: shelleyBaseAddressProvider(cryptoProvider, accountIndex, false),
-      gapLimit,
-      blockchainExplorer,
-    })
-
-    this.baseIntAddrManager = new AddressManager({
-      addressProvider: shelleyBaseAddressProvider(cryptoProvider, accountIndex, true),
-      gapLimit,
-      blockchainExplorer,
-    })
-
-    this.enterpriseExtAddrManager = new AddressManager({
-      addressProvider: shelleyEnterpriseAddressProvider(cryptoProvider, accountIndex, false),
-      gapLimit,
-      blockchainExplorer,
-    })
-
-    this.enterpriseIntAddrManager = new AddressManager({
-      addressProvider: shelleyEnterpriseAddressProvider(cryptoProvider, accountIndex, true),
-      gapLimit,
-      blockchainExplorer,
-    })
+    this.dataProvider = dataProvider
+    this.stakeKeyHashesToDerive = stakeKeyHashesToDerive
   }
 
-  // TODO: Cache discovery of addresses
-  async discoverAllAddresses() {
-    const [baseInt, baseExt, enterpriseInt, enterpriseExt, accountAddr] = await Promise.all([
-      this.baseIntAddrManager.discoverAddresses(),
-      this.baseExtAddrManager.discoverAddresses(),
-      this.enterpriseIntAddrManager.discoverAddresses(),
-      this.enterpriseExtAddrManager.discoverAddresses(),
-      this.accountAddrManager.discoverAddresses(),
-    ])
+  private path(chain: Chain, index: number): BIP32Path {
+    return [
+      1852 + HARDENED_THRESHOLD,
+      1815 + HARDENED_THRESHOLD,
+      this.accountIndex + HARDENED_THRESHOLD,
+      chain,
+      index,
+    ]
+  }
 
-    return {
-      base: [...baseInt, ...baseExt],
-      enterprise: [...enterpriseInt, ...enterpriseExt],
-      account: accountAddr,
+  public async ensureXpubIsExported() {
+    for (const chain of [Chain.External, Chain.Staking]) {
+      await this.cryptoProvider.deriveXpub(this.path(chain, 0))
     }
   }
 
-  async discoverAllAddressesWithMeta() {
-    const [baseInt, baseExt, enterpriseInt, enterpriseExt, stakingAddresses] = await Promise.all([
-      this.baseIntAddrManager.discoverAddressesWithMeta(),
-      this.baseExtAddrManager.discoverAddressesWithMeta(),
-      this.enterpriseIntAddrManager.discoverAddressesWithMeta(),
-      this.enterpriseExtAddrManager.discoverAddressesWithMeta(),
-      this.accountAddrManager.discoverAddressesWithMeta(),
-    ])
+  public async deriveStakingAddress(index: number): Promise<Address> {
+    const stakeXpub = await this.cryptoProvider.deriveXpub(this.path(Chain.Staking, index))
+    return stakingAddressFromXpub(stakeXpub, this.cryptoProvider.network.networkId)
+  }
 
-    return {
-      baseExt,
-      baseInt,
-      enterpriseExt,
-      enterpriseInt,
-      stakingAddress: stakingAddresses[0].address,
+  public deriveStakingAddresses(beginIndex: number, endIndex: number): Promise<Address[]> {
+    return Promise.all(range(beginIndex, endIndex).map((i) => this.deriveStakingAddress(i)))
+  }
+
+  private generateXpubs(
+    from: number,
+    count: number,
+    chain: Chain
+  ): Promise<{path: BIP32Path; xpub: Buffer}[]> {
+    // What paths are we going to derive
+    const paths = range(from, from + count).map((index) => this.path(chain, index))
+
+    // Derive xpubs for the paths
+    return Promise.all(
+      paths.map(async (path) => ({path, xpub: await this.cryptoProvider.deriveXpub(path)}))
+    )
+  }
+
+  private addXpubsToAddrKeyHashes(xpubs: {path: BIP32Path; xpub: Buffer}[]) {
+    this.addrKeyHashes = {
+      ...this.addrKeyHashes,
+      ...Object.fromEntries(
+        xpubs.map(({xpub, path}) => [xpub2blake2b224Hash(xpub).toString('hex'), path])
+      ),
     }
   }
 
-  getAddressToAbsPathMapper() {
-    return this.fixedPathMapper()
+  private async _discoverAddresses(stakeXpub: Buffer, from: number, count: number, chain: Chain) {
+    const xpubs = await this.generateXpubs(from, count, chain)
+    this.addXpubsToAddrKeyHashes(xpubs)
+
+    // Create the addresses
+    const baseAddresses = xpubs.map(({xpub, path}) => ({
+      address: baseAddressFromXpub(xpub, stakeXpub, this.cryptoProvider.network.networkId),
+      path,
+    }))
+    const enterpriseAddresses = xpubs.map(({xpub, path}) => ({
+      address: enterpriseAddressFromXpub(xpub, this.cryptoProvider.network.networkId),
+      path,
+    }))
+
+    // Get set of used addresses
+    const usedAddresses = await this.dataProvider.filterUsedAddresses(
+      [...baseAddresses, ...enterpriseAddresses].map(({address}) => address)
+    )
+
+    const baseAddressesWithMeta = baseAddresses.map(({address, path}) => ({
+      address,
+      path,
+      isUsed: usedAddresses.has(address),
+    }))
+    const enterpriseAddressesWithMeta = enterpriseAddresses.map(({address, path}) => ({
+      address,
+      path,
+      isUsed: usedAddresses.has(address),
+    }))
+
+    const lastUsedIndex = Math.max(
+      ...[...baseAddressesWithMeta, ...enterpriseAddressesWithMeta]
+        .filter(({isUsed}) => isUsed)
+        .map(({path}) => path[4])
+    )
+
+    return {baseAddressesWithMeta, enterpriseAddressesWithMeta, lastUsedIndex}
   }
 
-  fixedPathMapper(): AddressToPathMapper {
-    const mappingShelley = {
-      ...this.baseIntAddrManager.getAddressToAbsPathMapping(),
-      ...this.baseExtAddrManager.getAddressToAbsPathMapping(),
-      ...this.accountAddrManager.getAddressToAbsPathMapping(),
-    }
-    const mappingEnterpriseShelley = {
-      // this will probably be duplicate with mappingShelley, just in case
-      ...this.enterpriseExtAddrManager.getAddressToAbsPathMapping(),
-      ...this.enterpriseIntAddrManager.getAddressToAbsPathMapping(),
+  /**
+   * As CIP-1852 extends BIP44, the discovery follows rules outlined here:
+   * https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki#account-discovery
+   *
+   * Most notably this part:
+   * > Address gap limit is currently set to 20. If the software hits 20 unused addresses in a row,
+   * > it expects there are no used addresses beyond this point and stops searching the address chain.
+   * > We scan just the external chains, because internal chains receive only coins that come from the
+   * > associated external chains.
+   *
+   * The gap limit can be set in the constructor.
+   */
+  public async discoverAddresses() {
+    // First derive stakeKeyHash, only one per account with index 0
+    const stakeXpub = await this.cryptoProvider.deriveXpub(this.path(Chain.Staking, 0))
+    this.addresses = {
+      stakingAddress: stakingAddressFromXpub(stakeXpub, this.cryptoProvider.network.networkId),
+      baseExternal: [],
+      enterpriseExternal: [],
+      baseInternal: [],
+      enterpriseInternal: [],
     }
 
-    const fixedShelley = {}
-    for (const key in mappingShelley) {
-      fixedShelley[bechAddressToHex(key)] = mappingShelley[key]
+    // Then start the discovery, only using the external addresses, after that we can derive the internal ones
+    let from = 0
+    let lastUsedIndex = -1
+    let continueDiscovery = true
+    while (continueDiscovery) {
+      const {
+        baseAddressesWithMeta,
+        enterpriseAddressesWithMeta,
+        lastUsedIndex: newLastUsedIndex,
+      } = await this._discoverAddresses(stakeXpub, from, this.gapLimit, Chain.External)
+
+      this.addresses.baseExternal.push(...baseAddressesWithMeta)
+      this.addresses.enterpriseExternal.push(...enterpriseAddressesWithMeta)
+
+      // Continue discovery if we discovered any new used addresses in this block
+      // This also handles the case where the only discovered address is the first one
+      // in that case we also don't continue with discovery
+      continueDiscovery = newLastUsedIndex > lastUsedIndex
+      from += this.gapLimit
+      lastUsedIndex = newLastUsedIndex
     }
 
-    const pubkeyShelley = {}
-    const stakingKeyShelley = {}
-    for (const key in mappingShelley) {
-      const addressBuffer = Buffer.from(bechAddressToHex(key), 'hex')
-      if (
-        [
-          AddressTypes.BASE,
-          AddressTypes.BASE_KEY_SCRIPT,
-          AddressTypes.ENTERPRISE,
-          AddressTypes.POINTER,
-        ].includes(getAddressType(addressBuffer))
-      ) {
-        pubkeyShelley[spendingHashFromAddress(key as Address)] = mappingShelley[key]
-      } else if (getAddressType(addressBuffer) === AddressTypes.REWARD) {
-        stakingKeyShelley[stakingHashFromAddress(key as Address)] = mappingShelley[key]
-      }
-    }
-    return (entry: Address | PubKeyHash | StakingHash) => {
-      return (
-        fixedShelley[entry] ||
-        mappingShelley[entry] ||
-        pubkeyShelley[entry] ||
-        stakingKeyShelley[entry] ||
-        mappingEnterpriseShelley[entry]
-      )
-    }
+    // After discovering all external addresses, derive the internal ones
+    const {baseAddressesWithMeta: baseInternal, enterpriseAddressesWithMeta: enterpriseInternal} =
+      await this._discoverAddresses(stakeXpub, 0, this.addresses.baseExternal.length, Chain.Internal)
+    this.addresses.baseInternal = baseInternal
+    this.addresses.enterpriseInternal = enterpriseInternal
+
+    // Then store derived stake key hashes
+    const stakingXpubs = await this.generateXpubs(0, this.stakeKeyHashesToDerive, Chain.Staking)
+    this.addXpubsToAddrKeyHashes(stakingXpubs)
+
+    return this.addresses
   }
 
-  async areAddressesUsed(): Promise<boolean> {
-    // we check only the external addresses since internal should not be used before external
-    // https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki#address-gap-limit
-    const baseExt = await this.baseExtAddrManager._deriveAddresses(0, this.gapLimit)
-    return await this.blockchainExplorer.isSomeAddressUsed(baseExt)
-  }
+  public getAddressToPathMapper(): AddressToPathMapper {
+    type Entry = [Parameters<AddressToPathMapper>[0], ReturnType<AddressToPathMapper>]
 
-  getStakingAddress(): Promise<Address> {
-    return this.accountAddrManager._deriveAddress(this.accountIndex)
+    const addressToEntry = ({address, path}: AddressWithMeta): Entry => [address, path]
+
+    const entries: Entry[] = [
+      [this.addresses.stakingAddress, this.path(Chain.Staking, 0)],
+      [bechAddressToHex(this.addresses.stakingAddress) as HexAddress, this.path(Chain.Staking, 0)],
+      ...(Object.entries(this.addrKeyHashes) as Entry[]),
+      ...this.addresses.baseExternal.map(addressToEntry),
+      ...this.addresses.enterpriseExternal.map(addressToEntry),
+      ...this.addresses.baseInternal.map(addressToEntry),
+      ...this.addresses.enterpriseInternal.map(addressToEntry),
+    ]
+    const mapper = Object.fromEntries(entries)
+
+    return (item) => mapper[item]
   }
 }

@@ -1,18 +1,19 @@
 {
   "name": "@wingriders/cab",
-  "version": "2.0.30",
-  "description": "CAB is a library to help with development of Cardano apps for browser and Node.js",
+  "version": "2.1.6",
+  "description": "CAB is a library, that helps you with development of Cardano apps for browser and Node.js",
   "repository": {
     "type": "git",
-    "url": "git://github.com/WingRiders/cab.git"
+    "url": "https://github.com/WingRiders/cab"
   },
+  "main": "./dist/index.js",
   "exports": {
+    ".": "./dist/index.js",
     "./account": "./dist/account/index.js",
-    "./blockchainExplorer": "./dist/blockchainExplorer/index.js",
     "./constants": "./dist/constants/index.js",
     "./crypto": "./dist/crypto/index.js",
     "./dappConnector": "./dist/dappConnector/index.js",
-    "./dataProviders": "./dist/dataProviders/index.js",
+    "./dataProvider": "./dist/dataProvider/index.js",
     "./errors": "./dist/errors/index.js",
     "./helpers": "./dist/helpers/index.js",
     "./ledger/address": "./dist/ledger/address/index.js",
@@ -20,10 +21,12 @@
     "./ledger/plutus": "./dist/ledger/plutus/index.js",
     "./ledger/transaction": "./dist/ledger/transaction/index.js",
     "./logger": "./dist/logger/index.js",
+    "./tokenMetadata": "./dist/tokenMetadata/index.js",
     "./types": "./dist/types/index.js",
     "./wallet": "./dist/wallet/index.js",
     "./wallet/connector": "./dist/wallet/connector/index.js"
   },
+  "types": "index.d.ts",
   "files": [
     "dist",
     "**/*.d.ts",
@@ -38,18 +41,24 @@
   "author": "WingRiders",
   "license": "ISC",
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "ts-patch": "ts-patch install -s",
     "prepack": "yarn clean && yarn ts-patch && yarn build",
-    "clean": "rm -Rf dist",
+    "clean": "rm -Rf index.d.ts index.d.ts.map account constants crypto dappConnector dataProvider dist errors helpers ledger logger tokenMetadata types wallet",
     "build": "yarn ts-patch && yarn tsc -p ./tsconfig.build.json",
     "dev": "yarn ts-patch && yarn tsc -p ./tsconfig.build.json --watch",
-    "test": "mocha"
+    "test": "mocha",
+    "eslint": "eslint ./src --max-warnings=0 --ext .ts,.js",
+    "prettier:check": "prettier --check .",
+    "prettier:fix": "prettier --write \"{**/*.{ts,tsx,js,jsx,json,css},package.json}\""
   },
   "dependencies": {
-    "bignumber.js": "^9.1.1",
+    "@wingriders/apply-params-to-script": "^0.1.2",
+    "bignumber.js": "^9.0.1",
     "bip39-light": "^1.0.7",
+    "blakejs": "^1.2.1",
     "borc": "^3.0.0",
-    "cardano-crypto.js": "^6.1.1",
+    "cardano-crypto.js": "^6.1.2",
     "date-fns": "^2.29.3",
     "isomorphic-fetch": "^3.0.0",
     "json-bigint": "^1.0.0",
@@ -57,18 +66,24 @@
     "randombytes": "^2.1.0"
   },
   "devDependencies": {
+    "@cardano-ogmios/schema": "^6.10.0",
     "@types/json-bigint": "^1.0.1",
     "@types/lodash": "^4.14.176",
-    "@types/mocha": "^10.0.0",
+    "@types/mocha": "^10.0.6",
     "@types/randombytes": "^2.0.0",
-    "@typescript-eslint/parser": "^5.9.1",
-    "eslint-import-resolver-typescript": "^2.5.0",
-    "eslint-plugin-import": "^2.24.2",
+    "@typescript-eslint/eslint-plugin": "^8.12.2",
+    "@typescript-eslint/parser": "^8.12.2",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^8.3.0",
+    "eslint-config-vacuumlabs": "^2.0.14",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-simple-import-sort": "^8.0.0",
     "fetch-mock": "6.0.1",
-    "mocha": "^10.2.0",
-    "ts-node": "^10.9.1",
-    "ts-patch": "^2.1.0",
-    "typescript": "^4.9.4",
+    "mocha": "^10.4.0",
+    "ts-node": "^10.9.2",
+    "ts-patch": "^3.1.2",
+    "type-fest": "^4.31.0",
+    "typescript": "^5.4.5",
     "typescript-transform-paths": "^3.4.6"
   }
 }

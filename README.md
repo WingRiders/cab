@@ -2,59 +2,62 @@
 
 # @wingriders/cab
 
-CAB (Cardano Application Backend) is a library, that helps you with development of Cardano apps for browser and Node.js. It can help with:
+**CAB (Cardano Application Backend)** is a powerful library designed to streamline the development of Cardano applications for both browser and Node.js environments.
 
-- Wallet and Account management
-- Ability to define custom data sources for blockchain data
-- Crypto helpers to generate new mnemonics and derive public and private keys
-- CIP-30 dApp connector helpers
-- A transaction planner with Plutus, metadata support and automatic UTxO selection
+## Features
 
-## Get started
+CAB provides essential tools for:
 
-### yarn
+- **Wallet & Account Management** – Securely manage Cardano wallets and accounts.
+- **Custom Data Sources** – Define and integrate blockchain data providers.
+- **Cryptographic Utilities** – Generate mnemonics and derive keys.
+- **CIP-30 dApp Connector** – Easily connect with Cardano dApps.
+- **Transaction Planning** – Build Plutus-compatible transactions with metadata and automatic UTxO selection.
+- **Plutus V1 & V2 Support** – Compatible with both Plutus versions.
+
+## Installation
+
+### Using Yarn
 
 ```sh
 yarn add @wingriders/cab
 ```
 
-### npm
+### Using npm
 
 ```sh
-npm i @wingriders/cab
+npm install @wingriders/cab
 ```
 
-## Development roadmap
+## Development Roadmap
 
-* [ ] Add documentation
-* [ ] Add support for Plutus V2
-* [ ] Refine transaction planner
-* [ ] Open-source data providers
-* [ ] Clean up helpers and error reporting
-* [ ] Refine tests
-* [ ] ES Modules support
+- [ ] Add comprehensive documentation
+- [x] Support Plutus V2
+- [ ] Improve transaction planner
+- [x] Open-source data providers
+- [ ] Enhance error reporting and helper functions
+- [ ] Expand test coverage
+- [ ] Add ES Modules support
 
-## Basic usage
+## Basic Usage
 
-CAB has many functionalities, which we are working on documentating. These are just basic examples of how you may use the library.
+CAB offers a wide range of functionalities. Below are some basic examples to help you get started.
 
-### Account management
-An account belongs to a wallet, that is defined mainly by the wallet's secret key - mnemonic.
+### Account Management
+
+Manage a wallet using a mnemonic phrase.
+
 ```ts
 import {NETWORKS} from '@wingriders/cab/constants'
 import {JsCryptoProvider, mnemonicToWalletSecretDef} from '@wingriders/cab/crypto'
+import {CabBackend} from '@wingriders/cab/dataProvider'
 import {NetworkName} from '@wingriders/cab/types/network'
 import {Wallet} from '@wingriders/cab/wallet'
 
-// Here we assume the `onChainDataProvider`, `ledgerStateProvider` and
-// `submitTxProvider` are already defined. We are working on open-source
-// implementation of these. In the meantime you can bring your own that
-// adheres to the defined interfaces - see src/dataProviders/types.ts
+const dataProvider = new CabBackend('https://cab-server.mainnet.wingriders.com', NetworkName.MAINNET)
 
 const wallet = new Wallet({
-  onChainDataProvider,
-  ledgerStateDataProvider,
-  submitTxProvider,
+  dataProvider,
   cryptoProvider: new JsCryptoProvider({
     // Here we assume the mnemonic is in a variable called `secretMnemonic`
     // for example loaded from the environment variables
@@ -64,36 +67,32 @@ const wallet = new Wallet({
       shouldExportPubKeyBulk: true,
     },
   }),
-  config: {
-    shouldExportPubKeyBulk: true,
-    gapLimit: 20,
-  },
+  gapLimit: 20,
 })
 
-// Load the first account - account with index 0
-await wallet.getAccountManager().addAccounts([0])
-
-// Get the first account
-const account = wallet.getAccountManager().getAccount(0)
+const account = await wallet.getOrLoadAccount(0)
+const utxos = account.getUtxos()
 ```
 
-### Transaction planner
+### Transaction Planner
 
-To create a basic transaction for sending 10 ADA to Alice, from account we loaded in previous step
+Send 10 ADA to Alice using a planned transaction.
+
 ```ts
 import {getTxPlan} from '@wingriders/cab/ledger/transaction'
-import {TxPlanArgs} from '@wingriders/cab/types'
+import {Lovelace, TxPlanArgs} from '@wingriders/cab/types'
 
 // Obtain the protocol parameters from your ledger state provider
-const protocolParameters = await ledgerStateProvider.getProtocolParameters()
+const protocolParameters = await dataProvider.getProtocolParameters()
 
 // Define the plan of the transaction
 const txPlanArgs: TxPlanArgs = {
   planId: 'send-ada-to-Alice',
   outputs: [
     {
-      address: "addr1z8n...u6v8",
+      address: 'addr1z8n...u6v8',
       coins: new Lovelace(10_000_000) as Lovelace,
+      tokenBundle: [],
     },
   ],
   protocolParameters,
@@ -104,16 +103,14 @@ const txPlanArgs: TxPlanArgs = {
 const txPlanResult = getTxPlan(txPlanArgs, account.getUtxos(), account.getChangeAddress())
 
 if (!txPlanResult.success) {
-  // If it failed report the reasons why, for avaible fiels refer to the
-  // `TxPlanResult` type
-  return
+  console.error(txPlanResult.error)
+  process.exit(1)
 }
 
 // Sign the transaction using your account and submit the transaction
-// via your wallet's SubmitTxProvider
+// via your wallet's dataProvider
 const txAux = prepareTxAux(txPlanResult.txPlan)
 const signedTx = await account.signTxAux(txAux)
-await wallet.submitTx(signedTx)
-
-// If needed feel free to track your transaction submission here
+console.log(`Submitting transaction ${signedTx.txHash}`)
+await wallet.submitTx(signedTx.txBody)
 ```

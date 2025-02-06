@@ -2,12 +2,10 @@
  * TODO break this up
  * TxAux should go somewhere else
  */
-import {Tagged} from 'borc'
 
 import {AddrKeyHash} from '@/types/address'
 import {BigNumber, Hash32String, HexString, Lovelace, TokenBundle} from '@/types/base'
 import {NetworkId} from '@/types/network'
-import {TxRelayType} from '@/types/stakepool'
 import {
   TxCertificate,
   TxDatum,
@@ -21,7 +19,6 @@ import {
   TxWithdrawal,
   TxWitnessSet,
 } from '@/types/transaction'
-import {CatalystVotingRegistrationData} from '@/types/txPlan'
 
 import {CborInt64} from './CborInt64'
 import {CborizedTxDatum} from './CborizedTxDatum'
@@ -48,10 +45,7 @@ export type TxAuxData = {
   networkId?: NetworkId
   scriptIntegrity?: Hash32String
 
-  //metadata
-  // the voting data is separated as it needs to be separately
-  // signed by the wallets
-  votingData?: CatalystVotingRegistrationData
+  // metadata
   // precomputed if no metadata, otherwise set when setting signature
   auxiliaryDataHash: HexString
   metadata?: TxMetadata | null
@@ -94,7 +88,6 @@ export const enum TxBodyKey {
 
 export const enum TxWitnessKey {
   SHELLEY = 0,
-  BYRON = 2,
   SCRIPTS_V1 = 3,
   DATA = 4,
   REDEEMERS = 5,
@@ -102,10 +95,10 @@ export const enum TxWitnessKey {
 }
 
 export const enum TxCertificateKey { // TODO: type would be a better name
-  STAKING_KEY_REGISTRATION = 0,
-  STAKING_KEY_DEREGISTRATION = 1,
-  DELEGATION = 2,
-  STAKEPOOL_REGISTRATION = 3,
+  STAKE_REGISTRATION = 0,
+  STAKE_DEREGISTRATION = 1,
+  STAKE_DELEGATION = 2,
+  VOTE_DELEGATION = 9,
 }
 
 export const enum TxStakeCredentialType {
@@ -138,67 +131,57 @@ export type CborizedTxRedeemer = [
   TxRedeemerTag,
   number /* index */,
   CborizedTxDatum,
-  [number /* memory */, number /* steps */] /* exunits */
+  [number /* memory */, number /* cpu */] /* exunits */
 ]
 
 export type CborizedTxScript = Buffer
 
 export type CborizedTxWithdrawals = Map<Buffer, CborInt64>
 
-export type CborizedTxStakingKeyRegistrationCert = [
-  TxCertificateKey.STAKING_KEY_REGISTRATION,
+export type CborizedTxStakeRegistrationCert = [
+  TxCertificateKey.STAKE_REGISTRATION,
   CborizedTxStakeCredential
 ]
 
-export type CborizedTxStakingKeyDeregistrationCert = [
-  TxCertificateKey.STAKING_KEY_DEREGISTRATION,
+export type CborizedTxStakeDeregistrationCert = [
+  TxCertificateKey.STAKE_DEREGISTRATION,
   CborizedTxStakeCredential
 ]
 
-export type CborizedTxDelegationCert = [TxCertificateKey.DELEGATION, CborizedTxStakeCredential, Buffer]
-
-// prettier-ignore
-export type CborizedTxSingleHostIPRelay = [
-  TxRelayType.SINGLE_HOST_IP,
-  number?,
-  Buffer?,
-  Buffer?,
+export type CborizedTxStakeDelegationCert = [
+  TxCertificateKey.STAKE_DELEGATION,
+  CborizedTxStakeCredential,
+  Buffer
 ]
 
-export type CborizedTxSingleHostNameRelay = [TxRelayType.SINGLE_HOST_NAME, number, string]
+export const enum DRepType {
+  KEY_HASH = 0,
+  SCRIPT_HASH = 1,
+  ALWAYS_ABSTAIN = 2,
+  ALWAYS_NO_CONFIDENCE = 3,
+}
 
-export type CborizedTxMultiHostNameRelay = [TxRelayType.MULTI_HOST_NAME, string]
+export type CborizedDRep =
+  | [DRepType.KEY_HASH, Buffer]
+  | [DRepType.SCRIPT_HASH, Buffer]
+  | [DRepType.ALWAYS_ABSTAIN]
+  | [DRepType.ALWAYS_NO_CONFIDENCE]
 
-export type CborizedTxStakepoolRegistrationCert = [
-  TxCertificateKey.STAKEPOOL_REGISTRATION,
-  Buffer,
-  Buffer,
-  CborInt64,
-  CborInt64,
-  Tagged<Array<number>> /*{
-    value: {
-      0: number
-      1: number
-    }
-  }*/,
-  Buffer,
-  Array<Buffer>,
-  any,
-  [string, Buffer] | null
+export type CborizedTxVoteDelegationCert = [
+  TxCertificateKey.VOTE_DELEGATION,
+  CborizedTxStakeCredential,
+  CborizedDRep
 ]
 
 export type CborizedTxCertificate =
-  | CborizedTxDelegationCert
-  | CborizedTxStakepoolRegistrationCert
-  | CborizedTxStakingKeyDeregistrationCert
-  | CborizedTxStakingKeyRegistrationCert
-
-export type CborizedTxWitnessByron = [Buffer, Buffer, Buffer, Buffer]
+  | CborizedTxStakeDelegationCert
+  | CborizedTxStakeDeregistrationCert
+  | CborizedTxStakeRegistrationCert
+  | CborizedTxVoteDelegationCert
 
 export type CborizedTxWitnessShelley = [Buffer, Buffer]
 
 export type CborizedTxWitnessValue =
-  | CborizedTxWitnessByron
   | CborizedTxWitnessShelley
   | CborizedTxScript
   | CborizedTxDatum
@@ -213,4 +196,4 @@ export type CborizedTxUnsigned = [CborizedTxBody, Buffer | null]
 
 export type CborizedTxStakeCredential = [TxStakeCredentialType, Buffer]
 
-export type CborizedCliWitness = [TxWitnessKey, CborizedTxWitnessShelley | CborizedTxWitnessByron]
+export type CborizedCliWitness = [TxWitnessKey, CborizedTxWitnessShelley]

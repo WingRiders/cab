@@ -1,8 +1,10 @@
-import {CborizedCliWitness, TxAux, TxSigned} from '@/ledger/transaction'
+import {CborizedCliWitness, TxAux, TxSigned} from '@/ledger/transaction/cbor/cborizedTx'
 import {TxWitnessSet} from '@/types'
 import {BIP32Path} from '@/types/address'
 import {Network} from '@/types/network'
 import {AddressToPathMapper, CryptoProviderFeature, DerivationScheme} from '@/types/wallet'
+
+import {Address, DataSignature, HexString} from '../dappConnector'
 
 export interface ICryptoProvider {
   network: Network
@@ -23,4 +25,9 @@ export interface ICryptoProvider {
     unsignedTx: TxAux,
     addressToPathMapper: AddressToPathMapper
   ): Promise<CborizedCliWitness>
+  signData(
+    address: Address,
+    data: HexString,
+    addressToAbsPathMapper: AddressToPathMapper
+  ): Promise<DataSignature>
 }

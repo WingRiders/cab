@@ -1,7 +1,9 @@
 import assert from 'assert'
-import {Lovelace, AssetQuantity, Address} from '@/types'
+
 import {createTokenChangeOutputs} from '@/ledger/transaction'
-import {protocolParametersAlonzo as protocolParameters} from './data/protocolParameters'
+import {Address, AssetQuantity, Lovelace, TxOutputType} from '@/types'
+
+import {protocolParameters} from './data/protocolParameters'
 
 const tokens = {
   // TODO: move to constants
@@ -23,6 +25,7 @@ const tokens = {
 }
 
 const createOutput = (coins, tokenBundle) => ({
+  type: TxOutputType.LEGACY,
   isChange: true,
   address:
     'addr1q8eakg39wqlye7lzyfmh900s2luc99zf7x9vs839pn4srjs2s3ps2plp2rc2qcgfmsa8kx2kk7s9s6hfq799tmcwpvpsjv0zk3',
@@ -38,22 +41,22 @@ const address =
 const fixtures = {
   'with number of tokens equal to max': {
     tokenBundle: Object.values(tokens),
-    outputs: [createOutput(1655136, Object.values(tokens))],
+    outputs: [createOutput(1361960, Object.values(tokens))],
   },
   'with number of tokens smaller than max': {
     tokenBundle: [tokens.token1, tokens.token2],
-    outputs: [createOutput(1482726, [tokens.token1, tokens.token2])],
+    outputs: [createOutput(1219730, [tokens.token1, tokens.token2])],
   },
   'with number of tokens bigger than max': {
     tokenBundle: [...Object.values(tokens), tokens.token1, tokens.token2],
     outputs: [
-      createOutput(1655136, Object.values(tokens)),
-      createOutput(1482726, [tokens.token1, tokens.token2]),
+      createOutput(1361960, Object.values(tokens)),
+      createOutput(1219730, [tokens.token1, tokens.token2]),
     ],
   },
   'with one token': {
     tokenBundle: [tokens.token1],
-    outputs: [createOutput(1379280, [tokens.token1])],
+    outputs: [createOutput(1163700, [tokens.token1])],
   },
   'without tokens': {
     tokenBundle: [],
@@ -67,7 +70,7 @@ describe('Change computing', () => {
       const {tokenBundle, outputs} = setting
       assert.deepStrictEqual(
         createTokenChangeOutputs({
-          protocolParameters,
+          minUtxoDepositCoefficient: protocolParameters.minUtxoDepositCoefficient,
           changeAddress: address,
           changeTokenBundle: tokenBundle,
           maxOutputTokens,

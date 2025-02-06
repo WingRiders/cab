@@ -1,4 +1,6 @@
-import {chain, isObject, keyBy} from 'lodash'
+import {ExecutionUnits} from '@cardano-ogmios/schema'
+import {chain, keyBy} from 'lodash'
+import isNumber from 'lodash/isNumber'
 
 import {CabInternalError, CabInternalErrorReason} from '@/errors'
 import {getTxPlan, prepareTxAux, prepareTxWitnessSet, signedTransaction} from '@/ledger/transaction'
@@ -10,7 +12,6 @@ import {
   GenericOutput,
   Lovelace,
   ProtocolParameters,
-  TxExUnits,
   TxPlan,
   TxPlanArgs,
   TxPlanResult,
@@ -25,42 +26,82 @@ import {request} from './request'
 import {utxoId} from './utxoId'
 
 const TxRedeemers = ['spend', 'mint', 'cert', 'reward'] as const
-export type Evaluations = Record<`${typeof TxRedeemers[number]}:${number}`, TxExUnits>
+const stringTxRedeemers: readonly string[] = TxRedeemers
 
-export type EvaluateTxBodyFn = (
-  txBody: string
-) => Promise<{success: true; evaluations: Evaluations} | {success: false}>
+type RedeemerPointer = {
+  purpose: (typeof TxRedeemers)[number]
+  index: number
+}
+
+type EvaluationResult = {
+  validator: RedeemerPointer
+  budget: ExecutionUnits
+}
+
+export type Evaluations = EvaluationResult[]
+
+export type EvaluateTxBodyFn = (txBody: string) => Promise<
+  | {success: true; evaluations: Evaluations}
+  | {
+      success: false
+      cause?: 'Overspent budget' | 'Deserialization failure'
+    }
+>
 
 export function assertEvaluations(data: unknown): asserts data is Evaluations {
   if (
-    !isObject(data) ||
-    !Object.keys(data).every((key) => {
-      const [redeemer, index] = key.split(':')
-      const stringTxRedeemers: readonly string[] = TxRedeemers
-      return [stringTxRedeemers.includes(redeemer), /^\d+$/.test(index)]
+    !Array.isArray(data) ||
+    !data.every((evaluationResult) => {
+      if (typeof evaluationResult !== 'object') {
+        return false
+      }
+      if (!['validator', 'budget'].every((key) => key in evaluationResult)) {
+        return false
+      }
+      const redeemerPointer = evaluationResult.validator
+      if (typeof redeemerPointer !== 'object') {
+        return false
+      }
+      if (!['purpose', 'index'].every((key) => key in redeemerPointer)) {
+        return false
+      }
+      if (!stringTxRedeemers.includes(redeemerPointer.purpose)) {
+        return false
+      }
+      if (!isNumber(redeemerPointer.index)) {
+        return false
+      }
+      const txExUnits = evaluationResult.budget
+      if (typeof txExUnits !== 'object') {
+        return false
+      }
+      if (!['memory', 'cpu'].every((key) => key in txExUnits)) {
+        return false
+      }
+      if (!isNumber(txExUnits.memory) || !isNumber(txExUnits.cpu)) {
+        return false
+      }
+      return true
     })
   ) {
     throw new Error('Provided evaluations are not in a valid format')
   }
 }
 
-export function assertAreEvaluationsValid(
+export function assertExUnitsNotExceeded(
   evaluations: Evaluations,
   {maxExecutionUnitsPerTransaction}: ProtocolParameters
 ) {
-  const totalTxExUnits = Object.values(evaluations).reduce(
-    (acc, curr) => ({memory: acc.memory + curr.memory, steps: acc.steps + curr.steps}),
-    {memory: 0, steps: 0}
-  )
+  const totalOgmiosExUnits = getTotalOgmiosExUnits(evaluations)
 
-  if (totalTxExUnits.memory > maxExecutionUnitsPerTransaction.memory) {
+  if (totalOgmiosExUnits.memory > maxExecutionUnitsPerTransaction.memory) {
     throw new CabInternalError(CabInternalErrorReason.MaxTxExUnitsExceeded, {
-      message: `Transaction exceeded maximum memory exUnits (used=${totalTxExUnits.memory}, max=${maxExecutionUnitsPerTransaction.memory})`,
+      message: `Transaction exceeded maximum memory exUnits (used=${totalOgmiosExUnits.memory}, max=${maxExecutionUnitsPerTransaction.memory})`,
     })
   }
-  if (totalTxExUnits.steps > maxExecutionUnitsPerTransaction.steps) {
+  if (totalOgmiosExUnits.cpu > maxExecutionUnitsPerTransaction.cpu) {
     throw new CabInternalError(CabInternalErrorReason.MaxTxExUnitsExceeded, {
-      message: `Transaction exceeded maximum steps exUnits (used=${totalTxExUnits.steps}, max=${maxExecutionUnitsPerTransaction.steps})`,
+      message: `Transaction exceeded maximum cpu exUnits (used=${totalOgmiosExUnits.cpu}, max=${maxExecutionUnitsPerTransaction.cpu})`,
     })
   }
 }
@@ -82,13 +123,19 @@ export const evaluateTxBodyFactory =
     }
   }
 
-export const getTotalExUnits = (txPlan: TxPlan): TxExUnits =>
+export const getTotalExUnits = (txPlan: TxPlan): ExecutionUnits =>
   (txPlan.redeemers || [])
     .map(({exUnits}) => exUnits)
-    .reduce((acc, curr) => ({
-      memory: acc.memory + curr.memory,
-      steps: acc.steps + curr.steps,
-    }))
+    .reduce((acc, curr) => ({memory: acc.memory + curr.memory, cpu: acc.cpu + curr.cpu}), {
+      memory: 0,
+      cpu: 0,
+    })
+
+export const getTotalOgmiosExUnits = (evaluations: {budget: ExecutionUnits}[]) =>
+  evaluations.reduce(
+    (acc, curr) => ({memory: acc.memory + curr.budget.memory, cpu: acc.cpu + curr.budget.cpu}),
+    {memory: 0, cpu: 0}
+  )
 
 /**
  * Assumes that the same txPlanArgs are passed in as were used
@@ -104,13 +151,12 @@ const assignExUnitsToTxPlanArgs = (evaluations: Evaluations, txPlanArgs: TxPlanA
     })
   }
 
-  const exUnits: Partial<Record<typeof TxRedeemers[number], Record<number, TxExUnits>>> = chain(
+  const exUnits: Partial<Record<(typeof TxRedeemers)[number], Record<number, ExecutionUnits>>> = chain(
     evaluations
   )
-    .toPairs()
-    .groupBy(([key, _]) => key.split(':')[0])
-    .mapValues((exUnits) =>
-      Object.fromEntries(exUnits.map(([key, exUnit]) => [parseInt(key.split(':')[1], 10), exUnit]))
+    .groupBy(({validator}) => validator.purpose)
+    .mapValues((evaluationsInGroup) =>
+      Object.fromEntries(evaluationsInGroup.map(({validator, budget}) => [validator.index, budget]))
     )
     .value()
 
@@ -160,6 +206,7 @@ export async function getEvaluatedTxPlan({
   evaluateTxBodyFn,
   validityIntervalStart,
   ttl,
+  allowExceededExUnits,
 }: {
   txPlanArgs: TxPlanArgs
   /** should be pubkey-only utxo list for now */
@@ -168,7 +215,17 @@ export async function getEvaluatedTxPlan({
   evaluateTxBodyFn: EvaluateTxBodyFn
   validityIntervalStart?: number
   ttl?: number
+  allowExceededExUnits?: boolean
 }): Promise<TxPlanResult> {
+  if (utxos.some((utxo) => utxo == null))
+    throw new Error(
+      `Cannot create TxPlan ${origTxPlanArgs.planId}, there is a null UTxO in the arguments`
+    )
+  if (origTxPlanArgs.inputs?.some(({utxo}) => utxo == null))
+    throw new Error(
+      `Cannot create TxPlan ${origTxPlanArgs.planId}, there is a null UTxO in the inputs of TxPlanArgs`
+    )
+
   const baseTxPlan = getTxPlan(origTxPlanArgs, utxos, changeAddress)
 
   if (baseTxPlan.success === false) {
@@ -183,9 +240,9 @@ export async function getEvaluatedTxPlan({
 
   const evaluation = await evaluateTxBodyFn(unsignedTransaction.txBody)
 
-  if (evaluation.success === false) {
+  if (!evaluation.success) {
     return {
-      success: false,
+      ...evaluation,
       error: {
         code: CabInternalErrorReason.FailedToEvaluateTx,
       },
@@ -195,7 +252,9 @@ export async function getEvaluatedTxPlan({
     }
   }
 
-  // assertAreEvaluationsValid(evaluation.evaluations, origTxPlanArgs.protocolParameters)
+  if (!allowExceededExUnits) {
+    assertExUnitsNotExceeded(evaluation.evaluations, origTxPlanArgs.protocolParameters)
+  }
 
   const plan = baseTxPlan.txPlan
 
@@ -208,16 +267,18 @@ export async function getEvaluatedTxPlan({
     planType: TxPlanType.STRICT,
     inputs: plan.inputs.map((input): GenericInput => {
       const id = utxoId(input)
-      if (origInputsById[id]) {
-        return origInputsById[id]
-      } else {
+      if (origInputsById[id]) return origInputsById[id]
+      if (utxosById[id])
         return {
           // assuming the utxo list is pubkey only
           isScript: false,
           // if the input wasn't part of the args, it has to be part of the input utxos
-          utxo: utxosById[utxoId(input)],
+          utxo: utxosById[id],
         }
-      }
+      // Should not happen, because getTxPlan uses only UTxOs defined in its arguments
+      throw new Error(
+        `Cannot create TxPlan ${origTxPlanArgs.planId}, UTxO ${id} is not defined in the inputs nor in the additional UTxOs`
+      )
     }),
 
     // assume that only change outputs were added to the end

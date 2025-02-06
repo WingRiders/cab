@@ -1,26 +1,16 @@
-import partition from 'lodash/partition'
+import {partition} from 'lodash'
 
 import {ICryptoProvider} from '@/crypto/ICryptoProvider'
+import {DataProvider} from '@/dataProvider'
 import {CabInternalError, CabInternalErrorReason} from '@/errors'
-import {isRecommendedCollateral} from '@/helpers'
-import {bechAddressToHex} from '@/ledger/address'
+import {isCustomCollateral, MIN_RECOMMENDED_COLLATERAL_AMOUNT} from '@/helpers/collaterals'
 import {aggregateTokenBundles} from '@/ledger/assets'
-import {computeMinUTxOLovelaceAmount, TxAux} from '@/ledger/transaction'
-import {
-  Address,
-  AddressWithMeta,
-  BigNumber,
-  IBlockchainExplorer,
-  Lovelace,
-  ProtocolParameters,
-  StakePoolInfoExtended,
-  TokenBundle,
-  TxOutputType,
-  UTxO,
-  ZeroLovelace,
-} from '@/types'
+import {TxAux} from '@/ledger/transaction'
+import {Address, BigNumber, Lovelace, TokenBundle, UTxO} from '@/types'
 
-import {MyAddresses} from './AddressManager'
+import {Address as HexAddress, DataSignature, HexString} from '../dappConnector'
+import {AddressWithMeta, getAllAddresses} from './addressesInfo'
+import {AddressManager} from './AddressManager'
 
 export type AccountInfo = {
   accountIndex: number
@@ -36,16 +26,6 @@ export type AccountInfo = {
   stakingAddress: Address
 }
 
-export type StakingInfo = {
-  currentEpoch: number
-  isStakeKeyRegistered: boolean
-  delegation: StakePoolInfoExtended & {
-    retiringEpoch: number | null
-    url: string
-  }
-  rewards: Lovelace
-}
-
 /**
  * Account is derived by the derivation path `m/1852'/1815'/accountIndex'`
  *
@@ -58,7 +38,7 @@ export type StakingInfo = {
  * Another responsibility is the ability to witness transactions, with the
  * private keys belonging to one of its addresses.
  *
- * The source of UTxOs, used addresses and staking info is the Blockchain Explorer.
+ * The source of UTxOs, used addresses and staking info is cab-backend.
  *
  * By default Account is loaded once on initialization, and to get new data
  * it needs to be explicitly reloaded by calling the appropriate methods:
@@ -73,46 +53,43 @@ export class Account {
   public accountIndex: number
 
   private cryptoProvider: ICryptoProvider
-  private blockchainExplorer: IBlockchainExplorer
+  private dataProvider: DataProvider
+  private addressManager: AddressManager
 
   protected accountInfo: AccountInfo | null
   protected utxos: UTxO[] | null
-  protected stakingInfo: StakingInfo | null
-
-  // TODO: Make private, and think of better way to enable derivation of custom
-  //       addresses
-  public myAddresses: MyAddresses
 
   constructor({
     cryptoProvider,
-    blockchainExplorer,
+    dataProvider,
     accountIndex,
     gapLimit,
+    stakeKeyHashesToDerive,
   }: {
     cryptoProvider: ICryptoProvider
-    blockchainExplorer: IBlockchainExplorer
+    dataProvider: DataProvider
     accountIndex: number
     /**
      * Gap limit signalizes that after how many unused addresses to stop
      * looking for used ones when doing address exploration
      */
     gapLimit: number
+    stakeKeyHashesToDerive: number
   }) {
     this.accountIndex = accountIndex
 
     this.cryptoProvider = cryptoProvider
-    this.blockchainExplorer = blockchainExplorer
+    this.dataProvider = dataProvider
+    this.addressManager = new AddressManager({
+      accountIndex,
+      cryptoProvider,
+      dataProvider,
+      gapLimit,
+      stakeKeyHashesToDerive,
+    })
 
     this.accountInfo = null
     this.utxos = null
-    this.stakingInfo = null
-
-    this.myAddresses = new MyAddresses({
-      accountIndex,
-      cryptoProvider,
-      gapLimit,
-      blockchainExplorer,
-    })
   }
 
   private assertAccountInfoLoaded(): asserts this is typeof this & {accountInfo: AccountInfo} {
@@ -128,41 +105,23 @@ export class Account {
     }
   }
 
-  private assertStakingInfoLoaded(): asserts this is typeof this & {stakingInfo: StakingInfo} {
-    if (this.stakingInfo === null) {
-      // TODO: Clean-up errors and set proper error message here
-      throw new CabInternalError(CabInternalErrorReason.AccountNotLoaded)
-    }
-  }
-
   /**
    * Fetches account info for this account which includes, deriving addresses
    * associated with this account and checking whether they are in use or not
    */
   private async fetchAccountInfo(): Promise<AccountInfo> {
-    const addresses = await this.myAddresses.discoverAllAddressesWithMeta()
-    const [usedAddresses, unusedAddresses] = partition(
-      [
-        ...addresses.baseExt,
-        ...addresses.baseInt,
-        ...addresses.enterpriseExt,
-        ...addresses.enterpriseInt,
-      ],
-      (addressWithMeta) => addressWithMeta.isUsed
-    )
+    const addressesInfo = await this.addressManager.discoverAddresses()
+    const {stakingAddress, ...addresses} = addressesInfo
+    const allAddresses = getAllAddresses(addressesInfo)
+    const [usedAddresses, unusedAddresses] = partition(allAddresses, ({isUsed}) => isUsed)
 
     return {
       accountIndex: this.accountIndex,
       isUsed: usedAddresses.length > 0,
       usedAddresses,
       unusedAddresses,
-      addresses: {
-        baseExternal: addresses.baseExt,
-        enterpriseExternal: addresses.enterpriseExt,
-        baseInternal: addresses.baseInt,
-        enterpriseInternal: addresses.enterpriseInt,
-      },
-      stakingAddress: addresses.stakingAddress,
+      addresses,
+      stakingAddress,
     }
   }
 
@@ -179,7 +138,7 @@ export class Account {
     const {baseExternal, baseInternal, enterpriseExternal, enterpriseInternal} =
       this.getAccountInfo().addresses
 
-    return this.blockchainExplorer.fetchUnspentTxOutputs(
+    return this.dataProvider.getUTxOs(
       [...baseExternal, ...baseInternal, ...enterpriseExternal, ...enterpriseInternal].map(
         ({address}) => address
       )
@@ -202,7 +161,7 @@ export class Account {
    * was exported. Important for compatibility with hardware wallets
    */
   private async ensureXpubIsExported(): Promise<void> {
-    await this.myAddresses.baseExtAddrManager._deriveAddress(0)
+    await this.addressManager.ensureXpubIsExported()
   }
 
   /**
@@ -255,14 +214,22 @@ export class Account {
     return this.accountInfo.stakingAddress
   }
 
+  public deriveStakingAddress(index: number): Promise<Address> {
+    return this.addressManager.deriveStakingAddress(index)
+  }
+
+  public deriveStakingAddresses(beginIndex: number, endIndex: number): Promise<Address[]> {
+    return this.addressManager.deriveStakingAddresses(beginIndex, endIndex)
+  }
+
   public getUtxos(): UTxO[] {
     this.assertUTxOsLoaded()
     return this.utxos
   }
 
-  public getCollateralUtxos() {
+  public getCollateralUtxos(minCollateralAmount: number = MIN_RECOMMENDED_COLLATERAL_AMOUNT) {
     this.assertUTxOsLoaded()
-    return this.utxos.filter(isRecommendedCollateral)
+    return this.utxos.filter(isCustomCollateral(minCollateralAmount))
   }
 
   public getAccountInfo(): AccountInfo {
@@ -288,57 +255,12 @@ export class Account {
     }
   }
 
-  /**
-   * This function simulates the creation of a collector UTxO (aka that would have all the tokens)
-   * and calculates the total ada - minUTxOLovelaceAmount
-   * It does not consider corner cases, such as:
-   * - the user has more tokens than we can fit in a collector UTxO
-   * - the user has enough of a single token as to not fit into a single UTxO (over 2^63-1)
-   */
-  public getUsableBalance(protocolParameters: ProtocolParameters): Lovelace {
-    const {coins, tokenBundle} = this.getBalance()
-    const address = this.getChangeAddress()
-    const minUTxOLovelaceAmount = computeMinUTxOLovelaceAmount({
-      protocolParameters,
-      output: {type: TxOutputType.LEGACY, isChange: false, coins: ZeroLovelace, address, tokenBundle},
-    })
-    return BigNumber.max(coins.minus(minUTxOLovelaceAmount), 0) as Lovelace
-  }
-
-  private async fetchStakingInfo(): Promise<StakingInfo> {
-    this.assertAccountInfoLoaded()
-    const stakingAddressHex = bechAddressToHex(this.accountInfo.stakingAddress)
-    const stakingInfo = await this.blockchainExplorer.getStakingInfo(stakingAddressHex)
-
-    return {
-      currentEpoch: stakingInfo.currentEpoch,
-      isStakeKeyRegistered: stakingInfo.hasStakingKey,
-      delegation: stakingInfo.delegation,
-      rewards: new Lovelace(stakingInfo.rewards || 0, 10) as Lovelace,
-    }
-  }
-
-  public async reloadStakingInfo(): Promise<Account> {
-    this.stakingInfo = await this.fetchStakingInfo()
-    return this
-  }
-
-  public async loadStakingInfo(): Promise<Account> {
-    if (this.stakingInfo === null) {
-      await this.reloadStakingInfo()
-    }
-
-    return this
-  }
-
-  public getStakingInfo(): StakingInfo {
-    this.assertStakingInfoLoaded()
-    return this.stakingInfo
-  }
-
   public async signTxAux(txAux: TxAux) {
     try {
-      const signedTx = await this.cryptoProvider.signTx(txAux, this.myAddresses.fixedPathMapper())
+      const signedTx = await this.cryptoProvider.signTx(
+        txAux,
+        this.addressManager.getAddressToPathMapper()
+      )
       return signedTx
     } catch (e) {
       throw new CabInternalError(CabInternalErrorReason.TransactionRejectedWhileSigning, {
@@ -349,12 +271,19 @@ export class Account {
 
   public async witnessTxAux(txAux: TxAux) {
     try {
-      const witnessSet = await this.cryptoProvider.witnessTx(txAux, this.myAddresses.fixedPathMapper())
+      const witnessSet = await this.cryptoProvider.witnessTx(
+        txAux,
+        this.addressManager.getAddressToPathMapper()
+      )
       return witnessSet
     } catch (e) {
       throw new CabInternalError(CabInternalErrorReason.TransactionRejectedWhileSigning, {
         message: e.message,
       })
     }
+  }
+
+  public signData(address: HexAddress, data: HexString): Promise<DataSignature> {
+    return this.cryptoProvider.signData(address, data, this.addressManager.getAddressToPathMapper())
   }
 }

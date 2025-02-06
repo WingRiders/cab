@@ -67,6 +67,11 @@ export const tokenToValue = (token: Token): Value => ({
   },
 })
 
+export const valueToToken = (value: Value, asset: Asset): Token => ({
+  ...asset,
+  quantity: assetQuantity(value, asset),
+})
+
 export const assetToValue = (asset: Asset, quantity: AssetQuantity = new AssetQuantity(0)) => ({
   [asset.policyId]: {
     [asset.assetName]: quantity,

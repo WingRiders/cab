@@ -5,9 +5,10 @@ import range from 'lodash/range'
 
 import {MAX_INT64, MIN_INT64} from '@/constants'
 import {CabInternalError, CabInternalErrorReason} from '@/errors'
-import {BaseDatumConstr} from '@/ledger/plutus'
+import {BaseDatumConstr} from '@/ledger/plutus/BaseDatumConstr'
 import {TxDatum, TxDatumConstr, TxSimpleDatum} from '@/types/transaction'
 
+import {CborDefiniteLengthArray} from './CborDefiniteLengthArray'
 import {CborIndefiniteLengthArray} from './CborIndefiniteLengthArray'
 import {CborInt64} from './CborInt64'
 import {ARRAY_ENCODING, MT, SORT_ORDER, toType} from './cborTypes'
@@ -52,6 +53,19 @@ class CborizedTxDatumConstr {
   }
 
   encodeCBOR(encoder: any) {
+    if (this.cborArrayEncoding === ARRAY_ENCODING.ALWAYS_DEFINITE) {
+      return encoder.pushAny(
+        new Tagged(
+          this.getCborTag(),
+          new CborDefiniteLengthArray(
+            this.dataConstr.data.map(
+              (e: any) => new CborizedTxDatum(e, this.cborSortOrder, this.cborArrayEncoding)
+            )
+          ),
+          null
+        )
+      )
+    }
     if (
       this.cborArrayEncoding === ARRAY_ENCODING.ZERO_LENGTH_FOR_EMPTY_FOR_OTHER_INDEFINITE &&
       this.dataConstr.data.length === 0
@@ -62,7 +76,9 @@ class CborizedTxDatumConstr {
       new Tagged(
         this.getCborTag(),
         new CborIndefiniteLengthArray(
-          this.dataConstr.data.map((e: any) => new CborizedTxDatum(e, this.cborSortOrder))
+          this.dataConstr.data.map(
+            (e: any) => new CborizedTxDatum(e, this.cborSortOrder, this.cborArrayEncoding)
+          )
         ),
         null
       )
@@ -75,14 +91,12 @@ export class CborizedTxDatum {
   sortOrder: SORT_ORDER
   arrayEncoding: ARRAY_ENCODING
 
-  constructor(
-    data: TxDatum,
-    sortOrder = SORT_ORDER.ALPHABETICAL,
-    arrayEncoding = ARRAY_ENCODING.ZERO_LENGTH_FOR_EMPTY_FOR_OTHER_INDEFINITE
-  ) {
+  constructor(data: TxDatum, sortOrder = SORT_ORDER.ALPHABETICAL, arrayEncoding?: ARRAY_ENCODING) {
     this.data = data
     this.sortOrder = sortOrder
-    this.arrayEncoding = arrayEncoding
+    this.arrayEncoding =
+      (typeof data === 'object' && '__typeConstr' in data ? data.__cborArrayEncoding : arrayEncoding) ??
+      ARRAY_ENCODING.ZERO_LENGTH_FOR_EMPTY_FOR_OTHER_INDEFINITE
   }
 
   _pushMapAlphabeticOrder(encoder: any) {
@@ -125,9 +139,13 @@ export class CborizedTxDatum {
             success = encoder._pushBigNumber(encoder, this.data)
           }
         } else if ((this.data as TxDatumConstr).__typeConstr) {
-          success = encoder.pushAny(new CborizedTxDatumConstr(this.data as TxDatumConstr))
+          success = encoder.pushAny(
+            new CborizedTxDatumConstr(this.data as TxDatumConstr, this.sortOrder, this.arrayEncoding)
+          )
         } else if ((this.data as TxSimpleDatum).__simpleDatum) {
-          success = encoder.pushAny(new CborizedTxDatum((this.data as TxSimpleDatum).data))
+          success = encoder.pushAny(
+            new CborizedTxDatum((this.data as TxSimpleDatum).data, this.sortOrder, this.arrayEncoding)
+          )
         } else {
           success = encoder.pushAny(
             new CborizedTxDatum(new Map(Object.entries(this.data)), this.sortOrder, this.arrayEncoding)
@@ -153,7 +171,15 @@ export class CborizedTxDatum {
         throw new CabInternalError(CabInternalErrorReason.DatumTypeNotSupported, {message: 'BigInt'})
       case 'Array': {
         const arrayData = this.data as Array<TxDatum>
-        if (
+        if (this.arrayEncoding === ARRAY_ENCODING.ALWAYS_DEFINITE) {
+          success = encoder.pushAny(
+            new CborDefiniteLengthArray(
+              (this.data as Array<TxDatum>).map(
+                (e: any) => new CborizedTxDatum(e, this.sortOrder, this.arrayEncoding)
+              )
+            )
+          )
+        } else if (
           this.arrayEncoding === ARRAY_ENCODING.ZERO_LENGTH_FOR_EMPTY_FOR_OTHER_INDEFINITE &&
           arrayData.length === 0
         ) {
@@ -176,17 +202,34 @@ export class CborizedTxDatum {
   }
 
   static decode(data: string | Buffer, enc: 'hex' | 'base64' = 'hex'): TxDatum {
+    const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data, enc)
+    // !assumes that all arrays have the same encoding
+    const constrDatumArrayEncoding = getConstrDatumArrayEncoding(buffer)
     // copies the tagging logic from plutus
     // CDDL: https://github.com/input-output-hk/cardano-ledger/blob/2048cd4679ef3155d88a445e0f818abad09a0827/eras/alonzo/test-suite/cddl-files/alonzo.cddl#L287
     // code: https://github.com/input-output-hk/plutus/blob/4671f6b09586d9ce2063b5670121a922e7cdffbd/plutus-core/plutus-core/src/PlutusCore/Data.hs#L111
     const constrMapping = [
-      ...range(0, 7).map((num) => [121 + num, (val) => new BaseDatumConstr(num, val)]),
-      ...range(7, 128).map((num) => [1280 + num - 7, (val) => new BaseDatumConstr(num, val)]),
+      ...range(0, 7).map((num) => [
+        121 + num,
+        (val) => new BaseDatumConstr(num, val, constrDatumArrayEncoding),
+      ]),
+      ...range(7, 128).map((num) => [
+        1280 + num - 7,
+        (val) => new BaseDatumConstr(num, val, constrDatumArrayEncoding),
+      ]),
     ]
     const decoder = new Decoder({
       tags: fromPairs(constrMapping),
     })
-    const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data, enc)
+
     return decoder.decodeFirst(buffer)
   }
+}
+
+const getConstrDatumArrayEncoding = (datumBuffer: Buffer): ARRAY_ENCODING | undefined => {
+  const arrayTag = datumBuffer.at(2)
+  if (!arrayTag) return undefined
+  if (arrayTag === 159) return ARRAY_ENCODING.ZERO_LENGTH_FOR_EMPTY_FOR_OTHER_INDEFINITE
+  if (arrayTag >= 129 && arrayTag <= 151) return ARRAY_ENCODING.ALWAYS_DEFINITE
+  return undefined
 }

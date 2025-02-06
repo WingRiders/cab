@@ -1,10 +1,11 @@
+import {ExecutionUnits, Language as OgmiosLanguage} from '@cardano-ogmios/schema'
 import {BigNumber} from 'bignumber.js'
 
 import {ScriptHash} from '@/types/address'
 
 import type * as api from '../dappConnector'
+import {ARRAY_ENCODING} from '../ledger/transaction/cbor/cborTypes'
 import {Address, Hash32String, HexString, Lovelace, TokenBundle} from './base'
-import {TxPoolParams} from './stakepool'
 
 export type TxInputRef = {
   txHash: string
@@ -16,6 +17,7 @@ export type ReferenceScript = {
   scriptHash: ScriptHash
   // Specify spend redeemer for the input to be spent
   language: Language
+  size: number
 }
 
 export type UTxO = TxInputRef & {
@@ -30,7 +32,7 @@ export type UTxO = TxInputRef & {
   // TODO https://github.com/WingRiders/cardano-dex/issues/4074
   inlineDatum?: boolean
   inlineScript?: TxScript
-  // This field is filled when fetching UTxOs from explorer
+  // This field is filled when fetching UTxOs from cab-backend
   // and used to exclude reference script UTxOs from being used as inputs
   // when additional ada is required.
   hasInlineScript?: boolean
@@ -57,6 +59,7 @@ export enum TxScriptType {
   NATIVE = 0,
   PLUTUS_V1 = 1,
   PLUTUS_V2 = 2,
+  PLUTUS_V3 = 3,
 }
 
 export type TxDatumOption =
@@ -90,38 +93,38 @@ export type TxOutput = {
 export type TxOutputId = string & {__type: 'TxOutputId'}
 
 export enum TxCertificateType {
-  STAKING_KEY_REGISTRATION = 0,
-  STAKING_KEY_DEREGISTRATION = 1,
-  DELEGATION = 2,
-  STAKEPOOL_REGISTRATION = 3,
+  STAKE_REGISTRATION = 0,
+  STAKE_DEREGISTRATION = 1,
+  STAKE_DELEGATION = 2,
+  VOTE_DELEGATION = 9,
 }
 
 export type TxCertificate =
-  | TxStakingKeyRegistrationCert
-  | TxStakingKeyDeregistrationCert
-  | TxDelegationCert
-  | TxStakepoolRegistrationCert
+  | TxStakeRegistrationCert
+  | TxStakeDeregistrationCert
+  | TxStakeDelegationCert
+  | TxVoteDelegationCert
 
-export type TxStakingKeyRegistrationCert = {
-  type: TxCertificateType.STAKING_KEY_REGISTRATION
+export type TxStakeRegistrationCert = {
+  type: TxCertificateType.STAKE_REGISTRATION
   stakingAddress: Address
 }
 
-export type TxStakingKeyDeregistrationCert = {
-  type: TxCertificateType.STAKING_KEY_DEREGISTRATION
+export type TxStakeDeregistrationCert = {
+  type: TxCertificateType.STAKE_DEREGISTRATION
   stakingAddress: Address
 }
 
-export type TxDelegationCert = {
-  type: TxCertificateType.DELEGATION
+export type TxStakeDelegationCert = {
+  type: TxCertificateType.STAKE_DELEGATION
   stakingAddress: Address
   poolHash: string
 }
 
-export type TxStakepoolRegistrationCert = {
-  type: TxCertificateType.STAKEPOOL_REGISTRATION
+export type TxVoteDelegationCert = {
+  type: TxCertificateType.VOTE_DELEGATION
   stakingAddress: Address
-  poolRegistrationParams: TxPoolParams
+  // Supporting only always-abstain vote to allow withdrawals
 }
 
 export type TxWithdrawal = {
@@ -130,8 +133,6 @@ export type TxWithdrawal = {
 }
 
 export enum TxMetadatumLabel {
-  CATALYST_VOTING_REGISTRATION_DATA = 61284,
-  CATALYST_VOTING_SIGNATURE = 61285,
   MESSAGE = 674,
   NFT = 721,
 }
@@ -151,17 +152,9 @@ export type TxShelleyWitness = {
   signature: Buffer
 }
 
-export type TxByronWitness = {
-  publicKey: Buffer
-  signature: Buffer
-  chainCode: Buffer
-  addressAttributes: any // TODO:
-}
-
 export type TxWitnessSet = {
   vKeyWitnesses?: TxShelleyWitness[]
   nativeScripts?: any // TODO
-  bootstrapWitnesses?: TxByronWitness[]
   plutusScripts?: TxScriptSource[]
   plutusDatums?: TxDatum[]
   redeemers?: TxRedeemer[]
@@ -170,12 +163,14 @@ export type TxWitnessSet = {
 export enum Language {
   PLUTUSV1 = 0, // id TAG used by cost models
   PLUTUSV2 = 1,
+  PLUTUSV3 = 2,
 }
 
 export interface TxDatumConstr {
   i: number
   data: TxDatum[]
   __typeConstr: any
+  __cborArrayEncoding?: ARRAY_ENCODING
 }
 
 export interface TxSimpleDatum {
@@ -193,11 +188,6 @@ export type TxDatum =
   | TxDatumConstr // used for typed schemas
   | TxSimpleDatum // used for typed schemas
 
-export type TxExUnits = {
-  memory: number
-  steps: number
-}
-
 export enum TxRedeemerTag {
   SPEND = 0,
   MINT = 1,
@@ -208,7 +198,7 @@ export enum TxRedeemerTag {
 type TxRedeemerBase = {
   tag: TxRedeemerTag
   data: TxDatum
-  exUnits: TxExUnits
+  exUnits: ExecutionUnits
 }
 
 export type TxSpendRedeemer = TxRedeemerBase & {
@@ -238,26 +228,51 @@ export type TxScriptSource =
       // When doing serialization of witness set, skip reference scripts
       txInputRef: TxInputRef
       scriptHash: ScriptHash
+      scriptSize: number
       language: Language
       isReferenceScript: true
     }
 
+export type TxSubmission = {txHash: string}
+
 export enum PlutusScriptVersion {
   PlutusScriptV1 = 'PlutusScriptV1',
   PlutusScriptV2 = 'PlutusScriptV2',
+  PlutusScriptV3 = 'PlutusScriptV3',
+}
+
+export enum ScriptLanguageTag {
+  PLUTUS_SCRIPT_V1 = 'plutus:v1',
+  PLUTUS_SCRIPT_V2 = 'plutus:v2',
+  PLUTUS_SCRIPT_V3 = 'plutus:v3',
 }
 
 export const PLUTUS_SCRIPT_VERSION_PREFIX = {
   [PlutusScriptVersion.PlutusScriptV1]: '01',
   [PlutusScriptVersion.PlutusScriptV2]: '02',
+  [PlutusScriptVersion.PlutusScriptV3]: '03',
 }
 
 export const PLUTUS_SCRIPT_VERSION_TO_LANGUAGE = {
   [PlutusScriptVersion.PlutusScriptV1]: Language.PLUTUSV1,
   [PlutusScriptVersion.PlutusScriptV2]: Language.PLUTUSV2,
+  [PlutusScriptVersion.PlutusScriptV3]: Language.PLUTUSV3,
 }
 
 export const LANGUAGE_TO_TX_SCRIPT_TYPE = {
   [Language.PLUTUSV1]: TxScriptType.PLUTUS_V1,
   [Language.PLUTUSV2]: TxScriptType.PLUTUS_V2,
+  [Language.PLUTUSV3]: TxScriptType.PLUTUS_V3,
+}
+
+export const LANGUAGE_TO_SCRIPT_LANGUAGE_TAG = {
+  [Language.PLUTUSV1]: ScriptLanguageTag.PLUTUS_SCRIPT_V1,
+  [Language.PLUTUSV2]: ScriptLanguageTag.PLUTUS_SCRIPT_V2,
+  [Language.PLUTUSV3]: ScriptLanguageTag.PLUTUS_SCRIPT_V3,
+}
+
+export const OGMIOS_LANGUAGE_TO_LANGUAGE: Record<OgmiosLanguage, Language> = {
+  'plutus:v1': Language.PLUTUSV1,
+  'plutus:v2': Language.PLUTUSV2,
+  'plutus:v3': Language.PLUTUSV3,
 }

@@ -1,27 +1,18 @@
 import assert from 'assert'
-import {cloneDeep} from 'lodash/fp'
 import {encode} from 'borc'
-import {
-  TxRedeemerTag,
-  AssetQuantity,
-  Lovelace,
-  UTxO,
-  Address,
-  TxPlanArgs,
-  ZeroLovelace,
-} from '@/types'
-import {estimateTxSize, cborizeTxDatums, cborizeTxRedeemers} from '@/ledger/transaction'
+import {cloneDeep} from 'lodash/fp'
+
 import {UnexpectedErrorReason} from '@/errors'
-import {selectMinimalTxPlan} from '@/ledger/transaction/transactionPlanner'
-import {tokens} from './data/tokens'
-import {protocolParametersAlonzo as protocolParameters} from './data/protocolParameters'
-import {TxPlanDraft, TxPlanMetadata} from '@/types/txPlan'
-import {
-  CATALYST_SIGNATURE_BYTE_LENGTH,
-  METADATA_HASH_BYTE_LENGTH,
-} from '@/ledger/transaction/txConstants'
-import {encodeMetadata} from '@/ledger/transaction/metadata/encodeMetadata'
 import {adaToLovelace} from '@/helpers'
+import {cborizeTxDatums, cborizeTxRedeemers, estimateTxSize} from '@/ledger/transaction'
+import {encodeMetadata} from '@/ledger/transaction/metadata/encodeMetadata'
+import {selectMinimalTxPlan} from '@/ledger/transaction/transactionPlanner'
+import {METADATA_HASH_BYTE_LENGTH} from '@/ledger/transaction/txConstants'
+import {Address, AssetQuantity, Lovelace, TxPlanArgs, TxRedeemerTag, UTxO, ZeroLovelace} from '@/types'
+import {TxPlanDraft, TxPlanMetadata} from '@/types/txPlan'
+
+import {protocolParameters} from './data/protocolParameters'
+import {tokens} from './data/tokens'
 
 const utxos: {utxo1: UTxO; utxo2: UTxO; utxoWithTokens1: UTxO} = {
   utxo1: {
@@ -174,9 +165,13 @@ describe('Unsuccessful transaction plans', () => {
 
 describe('Size estimation', () => {
   const baseTransactionPlan: Required<
-    Omit<TxPlanDraft, 'protocolParameters' | 'planId' | 'requiredSigners' | 'metadata'>
+    Omit<
+      TxPlanDraft,
+      'protocolParameters' | 'planId' | 'requiredSigners' | 'metadata' | 'collateralOutput'
+    >
   > = {
     inputs: [],
+    referenceInputs: [],
     outputs: [],
     certificates: [],
     withdrawals: [],
@@ -231,7 +226,7 @@ describe('Size estimation', () => {
         tag: TxRedeemerTag.SPEND,
         ref: {txHash: plan.inputs[0].txHash, outputIndex: plan.inputs[0].outputIndex},
         data: 'hi',
-        exUnits: {memory: 400, steps: 400},
+        exUnits: {memory: 400, cpu: 400},
       },
     ]
     const newSize = estimateTxSize(plan)
@@ -251,25 +246,5 @@ describe('Size estimation', () => {
     const hashSize = METADATA_HASH_BYTE_LENGTH + 2 /* cbor header */ + 1 /* key */
     assert(baseSize < newSize, 'metadata increased the size')
     assert.strictEqual(newSize, baseSize + metadataSize + hashSize)
-  })
-  it('voting data should estimate accounting for the signature', () => {
-    const [plan, baseSize] = getBasePlan()
-    const metadata: TxPlanMetadata = {
-      votingData: {
-        votingPubKey: 'B723DBF81ABD5BEEF3040796231E8D5F32C70B59059F7C70DF4B406993500885',
-        stakePubKey: 'E55E62895B4C7D3334C6045D4F1442FBE02735C00D4CCA95281D7054AE1CD4EE',
-        nonce: 65210349,
-        rewardDestinationAddress: {
-          address: 'addr_test1ursxqzk5nj9q3fqpmxz6mlxvfrxqckkvfcjup9karlcwetgekjk8m' as Address,
-          stakingPath: [0, 0],
-        },
-      },
-    }
-    const newSize = estimateTxSize({...plan, metadata})
-    metadata.votingSignature = 'x'.repeat(CATALYST_SIGNATURE_BYTE_LENGTH * 2)
-    const metadataSize = encode(encodeMetadata(metadata)).length
-    const hashSize = METADATA_HASH_BYTE_LENGTH + 2 /* cbor header */ + 1 /* key */
-    assert(baseSize < newSize)
-    assert(newSize === baseSize + metadataSize + hashSize)
   })
 })

@@ -6,8 +6,6 @@ import {BIP32Path} from '@/types/address'
 
 import indexIsHardened from './indexIsHardened'
 
-const BYRON_V2_PATH = [HARDENED_THRESHOLD + 44, HARDENED_THRESHOLD + 1815, HARDENED_THRESHOLD]
-
 export function CachedDeriveXpubFactory(
   derivationScheme,
   shouldExportPubKeyBulk,
@@ -24,14 +22,14 @@ export function CachedDeriveXpubFactory(
 
       /*
        * we create pubKeyBulk only if the derivation path is from shelley era
-       * since there should be only one byron account exported in the fist shelley pubKey bulk
        */
 
       if (deriveHardened) {
-        const derivationPaths =
+        const derivationPaths = (
           shouldExportPubKeyBulk && isShelleyPath(absDerivationPath)
             ? createPathBulk(absDerivationPath)
             : [absDerivationPath]
+        ).filter(isShelleyPath)
         const pubKeys = await _deriveXpubsHardenedFn(derivationPaths)
         Object.assign(derivedXpubs, pubKeys)
       } else {
@@ -83,11 +81,6 @@ export function CachedDeriveXpubFactory(
       paths.push(nextAccountPath)
     }
 
-    /*
-     * in case of the account 0 we append also the byron path
-     * since during byron era only the first account was used
-     */
-    if (accountIndex === 0 && !paths.includes(BYRON_V2_PATH)) paths.push(BYRON_V2_PATH)
     return paths
   }
 

@@ -8,6 +8,7 @@ import {MT, NUMBYTES} from './cborTypes'
 export class CborInt64 {
   public bigNumber: BigNumber
   constructor(public number: BigNumber.Value) {
+    if (number == null) throw new Error('Cannot encode null number to CBOR')
     this.bigNumber = new BigNumber(number)
   }
 
