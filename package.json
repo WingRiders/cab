@@ -1,6 +1,6 @@
 {
   "name": "@wingriders/cab",
-  "version": "2.1.6",
+  "version": "2.1.7",
   "description": "CAB is a library, that helps you with development of Cardano apps for browser and Node.js",
   "repository": {
     "type": "git",
@@ -43,7 +43,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "ts-patch": "ts-patch install -s",
-    "prepack": "yarn clean && yarn ts-patch && yarn build",
+    "prepack": "yarn clean && yarn ts-patch && yarn tsc -p ./tsconfig.prepack.json",
     "clean": "rm -Rf index.d.ts index.d.ts.map account constants crypto dappConnector dataProvider dist errors helpers ledger logger tokenMetadata types wallet",
     "build": "yarn ts-patch && yarn tsc -p ./tsconfig.build.json",
     "dev": "yarn ts-patch && yarn tsc -p ./tsconfig.build.json --watch",
